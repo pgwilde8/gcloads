@@ -1,0 +1,107 @@
+{% extends "layout/admin_base.html" %}
+{% block title %}Broker Lookup{% endblock %}
+{% block content %}
+<section class="max-w-4xl mx-auto px-4 py-10 space-y-8">
+  <header class="flex flex-col gap-2">
+    <p class="text-sm uppercase tracking-[0.3em] text-emerald-300">Admin</p>
+    <h1 class="text-3xl sm:text-4xl font-extrabold text-white">Broker Lookup</h1>
+    <p class="text-gray-300">Enter an MC number to view all broker data we have on file.</p>
+  </header>
+
+  <form action="/admin/broker" method="get" class="flex gap-3 items-end">
+    <div class="flex-1">
+      <label for="mc" class="block text-xs font-medium text-gray-400 mb-1">MC Number</label>
+      <input 
+        type="text" 
+        id="mc" 
+        name="mc" 
+        value="{{ mc or '' }}" 
+        placeholder="e.g. 322572 or MC-322572"
+        class="w-full bg-slate-800 text-white border border-slate-600 rounded-lg px-4 py-2.5 font-mono focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 placeholder-gray-500"
+        autofocus>
+    </div>
+    <button 
+      type="submit" 
+      class="bg-emerald-600 hover:bg-emerald-500 text-white font-semibold px-6 py-2.5 rounded-lg transition">
+      Lookup
+    </button>
+  </form>
+
+  <div id="broker-results">
+    {% if error %}
+    <div class="bg-red-900/30 border border-red-500/50 rounded-xl p-4">
+      <p class="text-red-300">{{ error }}</p>
+    </div>
+    {% elif broker %}
+    <div class="space-y-6">
+      <!-- Broker Details -->
+      <div class="bg-gray-900/60 border border-white/10 rounded-2xl overflow-hidden">
+        <div class="bg-slate-800/80 px-6 py-3 border-b border-white/10">
+          <h2 class="text-lg font-bold text-white">{{ broker.company_name or 'Unknown' }}</h2>
+          <p class="text-xs text-gray-400 font-mono">MC {{ broker.mc_number }}{% if broker.dot_number %} &middot; DOT {{ broker.dot_number }}{% endif %}</p>
+        </div>
+        <div class="p-6 grid grid-cols-1 sm:grid-cols-2 gap-6">
+          <div>
+            <h3 class="text-xs uppercase tracking-wider text-gray-400 mb-3">Contact</h3>
+            <dl class="space-y-2 text-sm">
+              <div><dt class="text-gray-500 inline">Email:</dt> <dd class="inline text-white">{{ broker.primary_email or '—' }}</dd></div>
+              <div><dt class="text-gray-500 inline">Phone:</dt> <dd class="inline text-white font-mono">{{ broker.primary_phone or '—' }}</dd></div>
+              <div><dt class="text-gray-500 inline">Secondary:</dt> <dd class="inline text-white font-mono">{{ broker.secondary_phone or '—' }}</dd></div>
+              <div><dt class="text-gray-500 inline">Preferred:</dt> <dd class="inline text-emerald-300">{{ broker.preferred_contact_method or 'email' }}</dd></div>
+            </dl>
+          </div>
+          <div>
+            <h3 class="text-xs uppercase tracking-wider text-gray-400 mb-3">Address & Web</h3>
+            <dl class="space-y-2 text-sm">
+              <div>
+                <dt class="text-gray-500">Address:</dt>
+                <dd class="text-white">{{ [broker.phy_street, broker.phy_city, broker.phy_state, broker.phy_zip]|select|join(', ') or '—' }}</dd>
+              </div>
+              <div><dt class="text-gray-500">Website:</dt> <dd class="inline"><a href="https://{{ broker.website }}" target="_blank" class="text-emerald-400 hover:underline">{{ broker.website or '—' }}</a></dd></div>
+              <div><dt class="text-gray-500">DBA:</dt> <dd class="inline text-white">{{ broker.dba_name or '—' }}</dd></div>
+              <div><dt class="text-gray-500">Source:</dt> <dd class="inline text-gray-300">{{ broker.source or '—' }}</dd></div>
+            </dl>
+          </div>
+        </div>
+      </div>
+
+      <!-- All Emails -->
+      {% if emails %}
+      <div class="bg-gray-900/60 border border-white/10 rounded-2xl overflow-hidden">
+        <div class="bg-slate-800/80 px-6 py-3 border-b border-white/10">
+          <h2 class="text-lg font-bold text-white">All Emails ({{ emails|length }})</h2>
+        </div>
+        <div class="overflow-x-auto">
+          <table class="min-w-full text-sm">
+            <thead class="text-xs uppercase text-gray-400 border-b border-white/10">
+              <tr>
+                <th class="py-3 px-6 text-left">Email</th>
+                <th class="py-3 px-6 text-left">Source</th>
+                <th class="py-3 px-6 text-left">Confidence</th>
+                <th class="py-3 px-6 text-left">Evidence</th>
+              </tr>
+            </thead>
+            <tbody class="divide-y divide-white/5">
+              {% for e in emails %}
+              <tr class="hover:bg-gray-800/40">
+                <td class="py-3 px-6 font-mono text-white">{{ e.email }}</td>
+                <td class="py-3 px-6 text-gray-300">{{ e.source }}</td>
+                <td class="py-3 px-6 text-gray-300">{{ "%.2f"|format(e.confidence) }}</td>
+                <td class="py-3 px-6 text-gray-500 text-xs">{{ (e.evidence or '')[:80] }}{% if e.evidence and e.evidence|length > 80 %}…{% endif %}</td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+      {% endif %}
+    </div>
+    {% elif mc and not error %}
+    <div class="bg-amber-900/30 border border-amber-500/50 rounded-xl p-6 text-center">
+      <p class="text-amber-300">No broker found for MC <span class="font-mono font-bold">{{ mc }}</span>.</p>
+      <p class="text-sm text-gray-400 mt-2">Add them with: <code class="bg-slate-800 px-2 py-1 rounded text-xs">add_broker_contact.py --mc {{ mc_clean or mc }}</code></p>
+    </div>
+    {% endif %}
+  </div>
+</section>
+{% endblock %}

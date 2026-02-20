@@ -1,0 +1,9 @@
+<svg width="64" height="64" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Green Candle mark">
+  <rect width="64" height="64" rx="12" fill="#052E2B"/>
+  <rect x="1" y="1" width="62" height="62" rx="11" stroke="#10B981" stroke-opacity="0.55"/>
+  <path d="M14 40L24 30L33 37L45 23" stroke="#34D399" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="14" cy="40" r="2.5" fill="#A7F3D0"/>
+  <circle cx="24" cy="30" r="2.5" fill="#A7F3D0"/>
+  <circle cx="33" cy="37" r="2.5" fill="#A7F3D0"/>
+  <circle cx="45" cy="23" r="2.5" fill="#A7F3D0"/>
+</svg>

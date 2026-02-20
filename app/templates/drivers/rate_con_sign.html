@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sign Rate Con | Green Candle</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/htmx.org@1.9.10"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/signature_pad@4.0.0/dist/signature_pad.umd.min.js"></script>
+</head>
+<body class="bg-slate-950 text-slate-100 min-h-screen">
+    <main class="max-w-6xl mx-auto p-6 space-y-6">
+        <header class="flex items-center justify-between">
+            <div>
+                <h1 class="text-xl font-black">Rate Con Signature</h1>
+                <p class="text-slate-400 text-sm">Review contract and apply your signature.</p>
+            </div>
+            <a href="/drivers/dashboard?email={{ email }}" class="text-slate-300 hover:text-white text-sm font-bold">← Back to Dashboard</a>
+        </header>
+
+        <section class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <div class="bg-slate-900 border border-slate-800 rounded-2xl p-4">
+                <h2 class="text-sm font-bold mb-3">Contract Viewer</h2>
+                <iframe src="{{ viewer_url }}" class="w-full h-[70vh] rounded-xl bg-white" title="Rate Con PDF"></iframe>
+            </div>
+
+            <div class="bg-slate-900 border border-slate-800 rounded-2xl p-4 space-y-4">
+                <h2 class="text-sm font-bold">Signature Pad</h2>
+                <canvas id="signature-pad" class="w-full h-40 bg-white rounded-xl border-2 border-slate-700 touch-none"></canvas>
+
+                <div class="flex gap-3">
+                    <button type="button" id="clear-signature" class="bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold px-4 py-2 rounded-lg">Clear</button>
+                    <button type="button" id="apply-signature" class="bg-blue-600 hover:bg-blue-500 text-white text-xs font-black px-4 py-2 rounded-lg">Apply Signature</button>
+                </div>
+
+                <p class="text-[11px] text-slate-400">Tip: If broker cannot find sent contract, ask them to check Spam/Junk.</p>
+            </div>
+        </section>
+    </main>
+
+    <script>
+        const canvas = document.getElementById('signature-pad');
+        const signaturePad = new SignaturePad(canvas, { minWidth: 1, maxWidth: 2.5 });
+
+        function resizeCanvas() {
+            const ratio = Math.max(window.devicePixelRatio || 1, 1);
+            const rect = canvas.getBoundingClientRect();
+            canvas.width = rect.width * ratio;
+            canvas.height = rect.height * ratio;
+            canvas.getContext('2d').scale(ratio, ratio);
+            signaturePad.clear();
+        }
+        window.addEventListener('resize', resizeCanvas);
+        resizeCanvas();
+
+        document.getElementById('clear-signature').addEventListener('click', () => {
+            signaturePad.clear();
+        });
+
+        document.getElementById('apply-signature').addEventListener('click', async () => {
+            if (signaturePad.isEmpty()) {
+                alert('Please draw your signature before continuing.');
+                return;
+            }
+
+            const signatureData = signaturePad.toDataURL('image/png');
+            const body = new URLSearchParams({
+                email: '{{ email }}',
+                signature_data: signatureData,
+            });
+
+            const response = await fetch('/api/negotiations/{{ negotiation_id }}/apply-signature', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/x-www-form-urlencoded',
+                    'Accept': 'application/json',
+                },
+                body: body.toString(),
+            });
+
+            const data = await response.json();
+            if (!response.ok || data.status !== 'ok') {
+                alert('Signing failed: ' + (data.message || 'unknown_error'));
+                return;
+            }
+
+            alert('Contract signed successfully.');
+            window.location.href = '/drivers/dashboard?email={{ email }}';
+        });
+    </script>
+</body>
+</html>

@@ -1,0 +1,209 @@
+{% extends "layout/base.html" %}
+
+{% block title %}Admin Enrich | Green Candle Dispatch{% endblock %}
+
+{% block content %}
+<section class="max-w-3xl mx-auto px-6 py-10 space-y-6">
+  <div class="grid grid-cols-3 gap-4 mb-6">
+    <div class="bg-zinc-900 border border-white/10 rounded-2xl p-4 text-center">
+      <span class="text-xs text-gray-400 block uppercase tracking-wider">Session Total</span>
+      <span id="session_count" class="text-2xl font-bold text-emerald-500">0</span>
+    </div>
+    <div class="bg-zinc-900 border border-white/10 rounded-2xl p-4 text-center">
+      <span class="text-xs text-gray-400 block uppercase tracking-wider">New Brokers</span>
+      <span id="new_broker_count" class="text-2xl font-bold text-blue-500">0</span>
+    </div>
+    <div class="bg-zinc-900 border border-white/10 rounded-2xl p-4 text-center">
+      <span class="text-xs text-gray-400 block uppercase tracking-wider">Last MC</span>
+      <span id="last_mc" class="text-2xl font-bold text-gray-300">---</span>
+    </div>
+  </div>
+  <div class="flex justify-end -mt-4">
+    <button type="button" id="reset_stats_btn" class="text-xs px-3 py-1.5 rounded-lg bg-zinc-900 border border-white/10 hover:bg-zinc-800 text-gray-300">
+      Reset Stats
+    </button>
+  </div>
+
+  <div>
+    <h1 class="text-2xl font-bold">Admin Enrich</h1>
+    <p class="text-gray-300 text-sm mt-1">Quickly update broker contact data for manual intelligence boosts.</p>
+  </div>
+
+  {% if error %}
+    <div class="bg-red-900/40 border border-red-500/40 text-red-200 px-4 py-3 rounded-xl text-sm">{{ error }}</div>
+  {% endif %}
+  {% if saved %}
+    <div class="bg-emerald-900/30 border border-emerald-500/40 text-emerald-200 px-4 py-3 rounded-xl text-sm">Saved successfully.</div>
+  {% endif %}
+
+  <div class="bg-zinc-900 border border-white/10 rounded-2xl p-5 space-y-4">
+    <h2 class="font-semibold">Quick Lookup</h2>
+    <input type="password" id="admin_password" placeholder="Admin password" value="{{ admin_password or '' }}" class="w-full rounded-lg bg-zinc-800 border border-white/10 px-3 py-2" required>
+    <div class="flex gap-2">
+      <input type="text" id="mc_search" placeholder="Enter MC Number" value="{{ mc_number or '' }}" class="w-full rounded-lg bg-zinc-800 border border-white/10 px-3 py-2">
+      <button type="button" onclick="lookupBroker()" class="bg-emerald-600 hover:bg-emerald-500 rounded-lg px-4 py-2 text-sm font-semibold">
+        Search DB
+      </button>
+    </div>
+    <div id="status_badge" class="hidden text-xs rounded-md border px-2 py-1 w-fit"></div>
+  </div>
+
+  <form method="post" action="/admin/enrich" class="bg-zinc-900 border border-white/10 rounded-2xl p-5 space-y-4">
+    <h2 class="font-semibold">Contact Enrichment</h2>
+    <input type="hidden" id="admin_password_hidden" name="admin_password" value="{{ admin_password or '' }}">
+    <div class="space-y-2">
+      <label class="text-xs text-gray-400">Company Name (Auto-populated)</label>
+      <input type="text" id="display_name" name="company_name" value="{{ company_name or '' }}" class="w-full rounded-lg bg-zinc-800/50 border border-white/10 px-3 py-2" readonly>
+    </div>
+    <div class="space-y-2">
+      <label class="text-sm text-gray-300">MC Number</label>
+      <input type="text" id="mc_hidden" name="mc_number" value="{{ mc_number or '' }}" class="w-full rounded-lg bg-zinc-800 border border-white/10 px-3 py-2" required>
+    </div>
+    <div class="space-y-2">
+      <label class="text-sm text-gray-300">Internal Note</label>
+      <textarea id="internal_note" name="internal_note" rows="2" class="w-full rounded-lg bg-zinc-800 border border-white/10 px-3 py-2" placeholder="Example: TruckSmarter Book Now preferred; no bid emails after 4pm">{{ internal_note or '' }}</textarea>
+    </div>
+    <div class="grid grid-cols-2 gap-4">
+      <div class="space-y-2">
+        <label class="text-sm text-gray-300">Primary Email</label>
+        <input type="email" name="primary_email" value="{{ primary_email or '' }}" class="w-full rounded-lg bg-zinc-800 border border-white/10 px-3 py-2" placeholder="bids@broker.com">
+      </div>
+      <div class="space-y-2">
+        <label class="text-sm text-gray-300">Direct Phone</label>
+        <input type="text" name="direct_phone" value="{{ direct_phone or '' }}" class="w-full rounded-lg bg-zinc-800 border border-white/10 px-3 py-2" placeholder="555-0199">
+      </div>
+    </div>
+    <div class="space-y-2">
+      <label class="text-sm text-gray-300">Preferred Method</label>
+      <select name="preferred_method" class="w-full rounded-lg bg-zinc-800 border border-white/10 px-3 py-2">
+        <option value="email" {% if preferred_method == 'email' %}selected{% endif %}>email</option>
+        <option value="call" {% if preferred_method == 'call' %}selected{% endif %}>call</option>
+      </select>
+    </div>
+    {% if broker %}
+      <div class="text-xs text-gray-400">
+        Current: {{ broker.company_name or 'Unknown Company' }} · {{ broker.primary_email or 'no email' }} · {{ broker.primary_phone or 'no phone' }}
+      </div>
+    {% endif %}
+    <button type="submit" class="w-full bg-emerald-600 hover:bg-emerald-500 rounded-lg py-3 text-sm font-bold">SAVE TO DATABASE</button>
+  </form>
+</section>
+
+<script>
+let count = Number(localStorage.getItem('enrich_session_count') || '0');
+let newCount = Number(localStorage.getItem('enrich_new_count') || '0');
+const lastMcStored = localStorage.getItem('enrich_last_mc') || '---';
+
+document.getElementById('session_count').innerText = String(count);
+document.getElementById('new_broker_count').innerText = String(newCount);
+document.getElementById('last_mc').innerText = lastMcStored;
+
+function setLookupStatus(type, message) {
+  const badge = document.getElementById('status_badge');
+  badge.className = 'text-xs rounded-md border px-2 py-1 w-fit';
+
+  if (type === 'found') {
+    badge.classList.add('text-emerald-200', 'border-emerald-500/40', 'bg-emerald-900/40');
+  } else if (type === 'unauthorized') {
+    badge.classList.add('text-red-200', 'border-red-500/40', 'bg-red-900/40');
+  } else if (type === 'missing') {
+    badge.classList.add('text-amber-200', 'border-amber-500/40', 'bg-amber-900/40');
+  } else {
+    badge.classList.add('text-gray-200', 'border-white/20', 'bg-zinc-800');
+  }
+
+  badge.textContent = message;
+  badge.classList.remove('hidden');
+}
+
+async function lookupBroker() {
+  const mcInput = document.getElementById('mc_search');
+  const passwordInput = document.getElementById('admin_password');
+  const hiddenPassword = document.getElementById('admin_password_hidden');
+  const mc = (mcInput.value || '').trim();
+  const adminPassword = passwordInput.value || '';
+
+  if (!mc) {
+    setLookupStatus('info', 'Enter MC number first');
+    return;
+  }
+
+  hiddenPassword.value = adminPassword;
+
+  const url = `/admin/api/broker-lookup/${encodeURIComponent(mc)}?admin_password=${encodeURIComponent(adminPassword)}`;
+  const response = await fetch(url);
+  if (response.ok) {
+    const data = await response.json();
+    document.getElementById('display_name').value = data.company_name || '';
+    document.getElementById('display_name').readOnly = true;
+    document.getElementById('mc_hidden').value = mc;
+
+    if (data.phone) {
+      document.getElementsByName('direct_phone')[0].value = data.phone;
+    }
+    if (data.primary_email) {
+      document.getElementsByName('primary_email')[0].value = data.primary_email;
+    }
+    if (data.preferred_method) {
+      document.getElementsByName('preferred_method')[0].value = data.preferred_method;
+    }
+    if (data.internal_note) {
+      document.getElementById('internal_note').value = data.internal_note;
+    }
+    setLookupStatus('found', 'Found');
+  } else if (response.status === 401) {
+    setLookupStatus('unauthorized', 'Unauthorized');
+  } else {
+    setLookupStatus('missing', 'Not Found');
+    document.getElementById('display_name').readOnly = false;
+    document.getElementById('display_name').value = '';
+    document.getElementById('mc_hidden').value = mc;
+  }
+}
+
+document.getElementById('mc_search')?.addEventListener('keydown', (event) => {
+  if (event.key === 'Enter') {
+    event.preventDefault();
+    lookupBroker();
+  }
+});
+
+document.getElementById('admin_password')?.addEventListener('keydown', (event) => {
+  if (event.key === 'Enter') {
+    event.preventDefault();
+    lookupBroker();
+  }
+});
+
+document.querySelector('form[method="post"][action="/admin/enrich"]')?.addEventListener('submit', () => {
+  count += 1;
+  document.getElementById('session_count').innerText = String(count);
+  localStorage.setItem('enrich_session_count', String(count));
+
+  const currentMc = document.getElementById('mc_hidden').value || '---';
+  document.getElementById('last_mc').innerText = currentMc;
+  localStorage.setItem('enrich_last_mc', currentMc);
+
+  const badge = document.getElementById('status_badge');
+  if (badge.classList.contains('bg-amber-900/40')) {
+    newCount += 1;
+    document.getElementById('new_broker_count').innerText = String(newCount);
+    localStorage.setItem('enrich_new_count', String(newCount));
+  }
+});
+
+document.getElementById('reset_stats_btn')?.addEventListener('click', () => {
+  count = 0;
+  newCount = 0;
+  document.getElementById('session_count').innerText = '0';
+  document.getElementById('new_broker_count').innerText = '0';
+  document.getElementById('last_mc').innerText = '---';
+
+  localStorage.removeItem('enrich_session_count');
+  localStorage.removeItem('enrich_new_count');
+  localStorage.removeItem('enrich_last_mc');
+
+  setLookupStatus('info', 'Stats reset');
+});
+</script>
+{% endblock %}

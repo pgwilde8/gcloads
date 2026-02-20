@@ -1,0 +1,31 @@
+{
+  "manifest_version": 3,
+  "name": "GCD Scout",
+  "version": "1.0",
+  "description": "Surgical broker data harvester for Green Candle Dispatch",
+  "permissions": ["storage", "activeTab"],
+  "host_permissions": [
+    "https://*.trucksmarter.com/*",
+    "https://*.dat.com/*",
+    "https://*.truckstop.com/*",
+    "http://127.0.0.1:8369/*",
+    "https://greencandledispatch.com/*"
+  ],
+  "content_scripts": [
+    {
+      "matches": [
+        "https://*.trucksmarter.com/*",
+        "https://*.dat.com/*",
+        "https://*.truckstop.com/*"
+      ],
+      "js": ["content.js"]
+    }
+  ],
+  "options_ui": {
+    "page": "options.html",
+    "open_in_tab": false
+  },
+  "action": {
+    "default_title": "GCD Scout Status"
+  }
+}

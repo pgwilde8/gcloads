@@ -1,0 +1,503 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GCD Command Center</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/htmx.org@1.9.10"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+        .mission-tutorial-fade { animation: fadeIn 0.3s ease-out forwards; }
+        .neon-glow { text-shadow: 0 0 8px rgba(59, 130, 246, 0.5); }
+        .gain-glow {
+            color: #4ade80;
+            text-shadow: 0 0 10px rgba(74, 222, 128, 0.4);
+            font-weight: 900;
+        }
+        .fuel-bar { transition: width 1.5s ease-in-out; }
+        body { background-color: #020617; } /* Slate-950 */
+    </style>
+</head>
+<body class="text-slate-200 font-sans pb-24" style="--fuel-pct: {{ (((balance|default(0)) / 50) * 100)|round(0) }}">
+
+    {% if show_beta_banner %}
+    <div class="max-w-7xl mx-auto px-6 pt-4">
+        {% include "drivers/partials/beta_banner.html" %}
+    </div>
+    {% endif %}
+
+    {% if assigned_handle %}
+    <div class="max-w-7xl mx-auto px-6 pt-4">
+        <div class="bg-emerald-900/30 border border-emerald-500/40 text-emerald-200 px-4 py-3 rounded-xl text-sm">
+            Welcome to the fleet! Your professional dispatch identity is:
+            <span class="font-bold">{{ assigned_handle }}@gcdloads.com</span>
+        </div>
+    </div>
+    {% endif %}
+
+    <header class="p-6 bg-slate-900 border-b border-slate-800 sticky top-0 z-50 shadow-2xl">
+        <div class="max-w-7xl mx-auto flex flex-col md:flex-row justify-between items-center gap-4">
+            <div class="flex items-center gap-4" title="All broker negotiations are funneled through this address. The AI monitors this 24/7 so you don't have to.">
+                <div class="bg-blue-600 p-3 rounded-2xl shadow-lg shadow-blue-500/20">
+                    <i class="fas fa-satellite-dish text-white text-xl"></i>
+                </div>
+                <div>
+                    <h1 class="text-lg font-black tracking-tighter text-white">GCD <span class="text-blue-500">COMMAND</span></h1>
+                    <p class="text-[9px] font-black text-slate-500 uppercase tracking-widest mb-1">Active Dispatch Identity</p>
+                    <div class="flex items-center gap-2">
+                        <span class="flex h-2 w-2 rounded-full bg-green-500 animate-ping shrink-0" aria-hidden="true"></span>
+                        <span class="text-white font-bold font-mono text-sm">{{ trucker.display_name }}@gcdloads.com</span>
+                    </div>
+                    <p class="text-[10px] text-green-500 font-bold mt-1 flex items-center gap-1">
+                        <span class="flex h-1.5 w-1.5 rounded-full bg-green-500 animate-pulse"></span>
+                        Verified & Receiving
+                    </p>
+                    <p class="text-[9px] text-slate-600 mt-0.5">MC: {{ trucker.mc_number }}</p>
+                </div>
+            </div>
+
+            <div class="w-full md:w-80 bg-black/40 border border-slate-800 p-4 rounded-2xl">
+                <div class="flex justify-between items-end mb-2">
+                    <span class="text-[9px] font-black text-slate-500 uppercase tracking-widest">Automation Fuel</span>
+                    <span class="text-xl font-black text-white neon-glow">{{ "%.1f"|format(balance) }} <span class="text-xs text-blue-500">$CANDLE</span></span>
+                </div>
+                <div class="w-full bg-slate-800 h-1.5 rounded-full overflow-hidden">
+                    <div class="bg-blue-500 h-full fuel-bar" style="width: calc(var(--fuel-pct) * 1%)"></div>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <main class="max-w-7xl mx-auto p-6 space-y-8">
+        <!-- Card 1: Scout Picked Loads (jobs the extension has picked) -->
+        <section class="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <a href="/drivers/scout-loads" class="block bg-slate-900 border border-slate-800 rounded-2xl p-6 hover:border-blue-500/40 transition group">
+                <div class="flex items-start gap-4">
+                    <div class="bg-blue-600/20 p-3 rounded-xl group-hover:bg-blue-600/30 transition">
+                        <i class="fas fa-satellite-dish text-blue-400 text-xl"></i>
+                    </div>
+                    <div class="flex-1 min-w-0">
+                        <h3 class="text-white font-bold text-lg mb-1">Scout Picked Loads</h3>
+                        <p class="text-slate-400 text-sm leading-relaxed">Jobs the Chrome extension has picked from DAT / TruckSmarter. View and deploy from the Load Board.</p>
+                        <span class="inline-block mt-4 text-blue-400 font-bold text-sm group-hover:text-blue-300">View Scout Loads →</span>
+                    </div>
+                </div>
+            </a>
+
+            <!-- Card 2: After you win → Manage / Paperwork -->
+            <a href="/drivers/uploads" class="block bg-slate-900 border border-slate-800 rounded-2xl p-6 hover:border-green-500/40 transition group">
+                <div class="flex items-start gap-4">
+                    <div class="bg-green-600/20 p-3 rounded-xl group-hover:bg-green-600/30 transition">
+                        <i class="fas fa-file-invoice text-green-400 text-xl"></i>
+                    </div>
+                    <div class="flex-1 min-w-0">
+                        <h3 class="text-white font-bold text-lg mb-1">After you win a load</h3>
+                        <p class="text-slate-400 text-sm leading-relaxed">Use <strong class="text-slate-300">Manage</strong> (on the load card or under Paperwork) to get funded: upload BOL, create invoice, send packet to Century Finance.</p>
+                        <span class="inline-block mt-4 text-green-400 font-bold text-sm group-hover:text-green-300">Go to Paperwork →</span>
+                    </div>
+                </div>
+            </a>
+        </section>
+
+        <!-- Card 3: Automation Fuel Costs -->
+        <section>
+            <div class="bg-slate-900 border border-slate-800 rounded-2xl p-6">
+                <h3 class="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-4 flex items-center gap-2">
+                    <i class="fas fa-gas-pump text-blue-500"></i> Automation Fuel Costs
+                </h3>
+                <div class="grid grid-cols-2 sm:grid-cols-4 gap-4">
+                    <div class="bg-slate-800/50 rounded-xl p-4 border border-slate-700">
+                        <div class="text-slate-400 text-xs uppercase font-bold">Negotiation / Counter</div>
+                        <div class="text-white font-black text-lg mt-1">0.5 <span class="text-blue-500 text-xs">$CANDLE</span></div>
+                    </div>
+                    <div class="bg-slate-800/50 rounded-xl p-4 border border-slate-700">
+                        <div class="text-slate-400 text-xs uppercase font-bold">Voice Escalation</div>
+                        <div class="text-white font-black text-lg mt-1">0.5 <span class="text-blue-500 text-xs">$CANDLE</span></div>
+                    </div>
+                    <div class="bg-slate-800/50 rounded-xl p-4 border border-slate-700">
+                        <div class="text-slate-400 text-xs uppercase font-bold">Factoring Packet</div>
+                        <div class="text-white font-black text-lg mt-1">0.3 <span class="text-blue-500 text-xs">$CANDLE</span></div>
+                    </div>
+                    <div class="bg-slate-800/50 rounded-xl p-4 border border-slate-700">
+                        <div class="text-slate-400 text-xs uppercase font-bold">Full Dispatch (Booked)</div>
+                        <div class="text-green-400 font-black text-lg mt-1">10 <span class="text-blue-500 text-xs">$CANDLE</span></div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Scout status (compact) + Active Negotiations -->
+        <section class="grid grid-cols-1 lg:grid-cols-3 gap-8">
+            <div class="lg:col-span-1">
+                <h3 class="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-1 mb-3">Scout Status</h3>
+                <div id="scout-status-container"
+                     class="bg-slate-900 border border-slate-800 rounded-2xl p-6"
+                     hx-get="/drivers/scout-status"
+                     hx-trigger="load, every 60s"
+                     hx-swap="innerHTML">
+                    <div class="animate-pulse flex flex-col space-y-3">
+                        <div class="h-4 bg-slate-800 rounded w-2/3"></div>
+                        <div class="h-8 bg-slate-800 rounded w-full"></div>
+                    </div>
+                </div>
+            </div>
+            <div class="lg:col-span-2">
+                <div class="flex items-center justify-between ml-1 mb-3">
+                    <h3 class="text-[10px] font-black text-slate-500 uppercase tracking-widest">Active Negotiations</h3>
+                    <button onclick="document.getElementById('rate-modal').classList.remove('hidden')" 
+                            class="flex items-center gap-2 bg-slate-800 hover:bg-green-600/20 border border-slate-700 hover:border-green-500/50 text-white px-4 py-2 rounded-xl transition-all group">
+                        <i class="fas fa-filter text-green-500 group-hover:scale-110 transition-transform"></i>
+                        <span class="text-xs font-black uppercase tracking-tight">Set Floor Rates</span>
+                    </button>
+                </div>
+                <div id="active-missions-container" 
+                     hx-get="/drivers/dashboard-active-loads{% if driver_email %}?email={{ driver_email }}{% endif %}" 
+                     hx-trigger="load, every 30s, dashboardActiveLoadsRefresh from:body" 
+                     hx-swap="innerHTML"
+                     class="min-h-[320px]">
+                    <div class="bg-slate-900 border border-slate-800 rounded-2xl p-12 text-center">
+                        <div class="bg-slate-800 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4 text-slate-600">
+                            <i class="fas fa-radar text-2xl"></i>
+                        </div>
+                        <h4 class="text-white font-bold">Scanning for Opportunities</h4>
+                        <p class="text-slate-500 text-xs mt-2 max-w-xs mx-auto">
+                            Your fuel is ready. Open your load board to deploy Scout and start a negotiation.
+                        </p>
+                        <a href="/drivers/load-board" class="mt-6 inline-block bg-white text-black font-bold text-[10px] px-6 py-3 rounded-full uppercase tracking-tighter hover:bg-blue-500 hover:text-white transition">
+                            Open Load Board
+                        </a>
+                    </div>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    {% include "drivers/partials/rate_settings.html" %}
+
+    <div id="rate-settings-toast" class="hidden fixed top-4 right-4 z-[120] bg-emerald-600 text-white text-xs font-black uppercase tracking-wider px-4 py-3 rounded-xl shadow-lg shadow-emerald-900/40">
+        Settings Updated
+    </div>
+
+    <nav class="fixed bottom-6 left-1/2 -translate-x-1/2 bg-slate-900/80 backdrop-blur-xl border border-slate-800 p-2 rounded-2xl shadow-2xl z-50">
+        <div class="flex items-center gap-1">
+            <a href="/drivers/dashboard" class="bg-blue-600 text-white px-6 py-2 rounded-xl text-xs font-bold flex items-center gap-2">
+                <i class="fas fa-home"></i> Dashboard
+            </a>
+            <a href="/drivers/scout-loads" class="text-slate-400 hover:text-white px-6 py-2 rounded-xl text-xs font-bold transition flex items-center gap-2">
+                <i class="fas fa-satellite-dish"></i> Scout Loads
+            </a>
+            <a href="/drivers/load-board" class="text-slate-400 hover:text-white px-6 py-2 rounded-xl text-xs font-bold transition flex items-center gap-2">
+                <i class="fas fa-radar"></i> Load Board
+            </a>
+            <a href="/drivers/dashboard{% if driver_email %}?email={{ driver_email }}{% endif %}" class="relative text-slate-400 hover:text-white px-6 py-2 rounded-xl text-xs font-bold transition flex items-center gap-2">
+                <i class="fas fa-comments"></i> Negotiations
+                <span id="msg-badge" class="hidden absolute -top-1 -right-1 bg-red-600 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full animate-pulse">0</span>
+            </a>
+            <a href="/drivers/fleet" class="text-slate-400 hover:text-white px-6 py-2 rounded-xl text-xs font-bold transition">
+                <i class="fas fa-truck-ramp-box"></i> Fleet
+            </a>
+            <a href="/drivers/uploads" class="text-slate-400 hover:text-white px-6 py-2 rounded-xl text-xs font-bold transition flex items-center gap-2">
+                <i class="fas fa-file-upload"></i> Paperwork
+            </a>
+            <button type="button" onclick="document.getElementById('help-drawer').classList.remove('translate-x-full')" class="text-slate-400 hover:text-white px-6 py-2 rounded-xl text-xs font-bold transition flex items-center gap-2">
+                <i class="fas fa-question-circle"></i> Help
+            </button>
+        </div>
+    </nav>
+
+    {% include "drivers/partials/help_drawer.html" %}
+
+    {% if is_new_driver %}
+    <div id="first-mission-placeholder" hx-get="/drivers/partials/first-mission" hx-trigger="load" hx-swap="outerHTML"></div>
+    {% endif %}
+
+    <script>
+        async function runRetrySecureEmail(negotiationId, email, buttonEl) {
+            if (!email || !negotiationId) {
+                return;
+            }
+
+            const previousText = buttonEl ? buttonEl.textContent : '';
+            if (buttonEl) {
+                buttonEl.disabled = true;
+                buttonEl.textContent = 'Retrying...';
+            }
+
+            try {
+                const body = new URLSearchParams({
+                    negotiation_id: String(negotiationId),
+                    email,
+                });
+
+                const response = await fetch('/api/negotiations/retry-secure-email', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/x-www-form-urlencoded',
+                        'Accept': 'application/json',
+                    },
+                    body: body.toString(),
+                });
+
+                const data = await response.json();
+                if (!response.ok || data.status !== 'ok') {
+                    const message = data.message || 'retry_failed_check_smtp_logs';
+                    alert(`Retry failed: ${message}`);
+                    return;
+                }
+
+                alert('Retry successful. If broker cannot find the email, ask them to check Spam/Junk.');
+
+                if (window.htmx) {
+                    window.htmx.trigger(document.body, 'dashboardActiveLoadsRefresh');
+                }
+            } catch (_) {
+                alert('Retry failed: network error');
+            } finally {
+                if (buttonEl) {
+                    buttonEl.disabled = false;
+                    buttonEl.textContent = previousText;
+                }
+            }
+        }
+
+        document.body.addEventListener('rateSettingsUpdated', () => {
+            const modal = document.getElementById('rate-modal');
+            if (modal) {
+                modal.classList.add('hidden');
+            }
+
+            const toast = document.getElementById('rate-settings-toast');
+            if (!toast) {
+                return;
+            }
+
+            toast.classList.remove('hidden');
+            setTimeout(() => {
+                toast.classList.add('hidden');
+            }, 2200);
+        });
+
+        async function runSecureLoad(negotiationId, email, buttonEl) {
+            if (!email || !negotiationId) {
+                return;
+            }
+
+            const previousText = buttonEl ? buttonEl.textContent : '';
+            if (buttonEl) {
+                buttonEl.disabled = true;
+                buttonEl.textContent = 'Securing...';
+            }
+
+            try {
+                const body = new URLSearchParams({
+                    negotiation_id: String(negotiationId),
+                    email,
+                });
+
+                const response = await fetch('/api/negotiations/secure-load', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/x-www-form-urlencoded',
+                        'Accept': 'application/json',
+                    },
+                    body: body.toString(),
+                });
+
+                const data = await response.json();
+                if (!response.ok || data.status !== 'ok') {
+                    const message = data.message || 'secure_load_failed';
+                    alert(`Secure failed: ${message}`);
+                    return;
+                }
+
+                if (window.htmx) {
+                    window.htmx.trigger(document.body, 'dashboardActiveLoadsRefresh');
+                }
+            } catch (_) {
+                alert('Secure failed: network error');
+            } finally {
+                if (buttonEl) {
+                    buttonEl.disabled = false;
+                    buttonEl.textContent = previousText;
+                }
+            }
+        }
+
+        async function runStopAiManual(negotiationId, email, buttonEl) {
+            if (!email || !negotiationId) {
+                return;
+            }
+
+            const previousText = buttonEl ? buttonEl.textContent : '';
+            if (buttonEl) {
+                buttonEl.disabled = true;
+                buttonEl.textContent = 'Switching...';
+            }
+
+            try {
+                const body = new URLSearchParams({
+                    negotiation_id: String(negotiationId),
+                    email,
+                });
+
+                const response = await fetch('/api/negotiations/manual-mode', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/x-www-form-urlencoded',
+                        'Accept': 'application/json',
+                    },
+                    body: body.toString(),
+                });
+
+                const data = await response.json();
+                if (!response.ok || data.status !== 'ok') {
+                    const message = data.message || 'manual_mode_failed';
+                    alert(`Stop AI failed: ${message}`);
+                    return;
+                }
+
+                if (window.htmx) {
+                    window.htmx.trigger(document.body, 'dashboardActiveLoadsRefresh');
+                }
+            } catch (_) {
+                alert('Stop AI failed: network error');
+            } finally {
+                if (buttonEl) {
+                    buttonEl.disabled = false;
+                    buttonEl.textContent = previousText;
+                }
+            }
+        }
+
+        async function runQuickReply(action, negotiationId, email, buttonEl) {
+            if (!email || !negotiationId) {
+                return;
+            }
+
+            const previousText = buttonEl ? buttonEl.textContent : '';
+            if (buttonEl) {
+                buttonEl.disabled = true;
+                buttonEl.textContent = 'Sending...';
+            }
+
+            try {
+                const body = new URLSearchParams({
+                    action,
+                    negotiation_id: String(negotiationId),
+                    email,
+                });
+
+                const response = await fetch('/api/negotiations/quick-reply', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/x-www-form-urlencoded',
+                        'Accept': 'application/json',
+                    },
+                    body: body.toString(),
+                });
+
+                const data = await response.json();
+                if (!response.ok || data.status !== 'ok') {
+                    const message = data.message || 'quick_reply_failed';
+                    alert(`Quick reply failed: ${message}`);
+                    return;
+                }
+
+                if (window.htmx) {
+                    window.htmx.trigger(document.body, 'dashboardActiveLoadsRefresh');
+                }
+            } catch (_) {
+                alert('Quick reply failed: network error');
+            } finally {
+                if (buttonEl) {
+                    buttonEl.disabled = false;
+                    buttonEl.textContent = previousText;
+                }
+            }
+        }
+
+        async function runApproveDraft(negotiationId, email, buttonEl) {
+            if (!email || !negotiationId) {
+                return;
+            }
+
+            const previousText = buttonEl ? buttonEl.textContent : '';
+            if (buttonEl) {
+                buttonEl.disabled = true;
+                buttonEl.textContent = 'Sending...';
+            }
+
+            try {
+                const body = new URLSearchParams({
+                    negotiation_id: String(negotiationId),
+                    email,
+                });
+
+                const response = await fetch('/api/negotiations/approve-draft', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/x-www-form-urlencoded',
+                        'Accept': 'application/json',
+                    },
+                    body: body.toString(),
+                });
+
+                const data = await response.json();
+                if (!response.ok || data.status !== 'ok') {
+                    const message = data.message || 'approve_draft_failed';
+                    alert(`Approve failed: ${message}`);
+                    return;
+                }
+
+                if (window.htmx) {
+                    window.htmx.trigger(document.body, 'dashboardActiveLoadsRefresh');
+                }
+            } catch (_) {
+                alert('Approve failed: network error');
+            } finally {
+                if (buttonEl) {
+                    buttonEl.disabled = false;
+                    buttonEl.textContent = previousText;
+                }
+            }
+        }
+
+        async function checkNotifications() {
+            try {
+                const driverEmail = "{{ driver_email|default('', true)|e }}";
+                const endpoint = driverEmail
+                    ? `/api/notifications/unread-count?email=${encodeURIComponent(driverEmail)}`
+                    : '/api/notifications/unread-count';
+
+                const response = await fetch(endpoint, { headers: { 'Accept': 'application/json' } });
+                if (!response.ok) {
+                    return;
+                }
+
+                const data = await response.json();
+                const badge = document.getElementById('msg-badge');
+                if (!badge) {
+                    return;
+                }
+
+                if ((data.unread_count || 0) > 0) {
+                    badge.textContent = String(data.unread_count);
+                    badge.classList.remove('hidden');
+                } else {
+                    badge.classList.add('hidden');
+                }
+            } catch (_) {
+                // polling is best-effort
+            }
+        }
+
+        document.addEventListener('DOMContentLoaded', () => {
+            checkNotifications();
+            setInterval(checkNotifications, 30000);
+        });
+    </script>
+
+</body>
+</html>

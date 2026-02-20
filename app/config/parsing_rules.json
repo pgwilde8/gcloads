@@ -1,0 +1,54 @@
+{
+  "contact_keywords": {
+    "email": [
+      "email bids only",
+      "email only",
+      "send bid via email",
+      "submit via email"
+    ],
+    "call": [
+      "phone calls only",
+      "call to book",
+      "must call",
+      "no emails"
+    ]
+  },
+  "source_platforms": {
+    "dat": {
+      "notes": "Keep selectors minimal and easy to update",
+      "keywords": ["MC", "Email bids only", "Phone calls only"],
+      "xpaths": {
+        "mc_number": "//span[contains(text(), 'MC')]/following-sibling::span",
+        "email_mailto": "//div[contains(@class, 'details')]//a[contains(@href, 'mailto')]"
+      },
+      "regex": {
+        "email": "[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\\\.[a-zA-Z]{2,}",
+        "mc_number": "MC\\\\s*#?\\\\s*(\\\\d{6,7})"
+      }
+    },
+    "dat_one": {
+      "notes": "DAT One web app dynamic classes; favor text labels and regex",
+      "keywords": ["MC", "Comments", "Company"],
+      "xpaths": {
+        "mc_number": "//span[contains(text(), 'MC')]/following-sibling::span",
+        "email_mailto": "//div[contains(@class, 'details')]//a[contains(@href, 'mailto')]"
+      },
+      "regex": {
+        "email": "[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\\\.[a-zA-Z]{2,}",
+        "mc_number": "MC\\\\s*#?\\\\s*(\\\\d{6,7})"
+      }
+    },
+    "truckstop": {
+      "notes": "Intermediate complexity",
+      "keywords": ["Broker Information", "MC Number", "Contact"],
+      "xpaths": {
+        "mc_number": "//div[text()='MC Number']/following-sibling::div",
+        "phone_tel": "//a[contains(@href, 'tel:')]",
+        "email_mailto": "//a[contains(@href, 'mailto:')]"
+      }
+    },
+    "trucksmarter": {
+      "notes": "Usually cleanest DOM"
+    }
+  }
+}

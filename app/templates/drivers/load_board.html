@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Load Board</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+</head>
+<body class="bg-slate-950 text-slate-200 min-h-screen pb-24" style="--fuel-pct: {{ (((balance|default(0)) / 50) * 100)|round(0) }}">
+  <main class="max-w-6xl mx-auto p-6 space-y-6">
+    <div class="flex items-center justify-between">
+      <h1 class="text-2xl font-black text-white">Load Board</h1>
+      <a href="/drivers/dashboard" class="text-blue-400 hover:text-blue-300 text-sm font-bold">← Back to Dashboard</a>
+    </div>
+
+    <section class="bg-slate-900 border border-slate-800 rounded-2xl p-6">
+      <p class="text-slate-300 text-sm">This minimal room is live. Use this as your staging area for launching negotiations from available Scout loads.</p>
+    </section>
+
+    <section class="bg-slate-900 border border-slate-800 rounded-2xl p-6">
+      <h2 class="text-white font-bold mb-3">Top Available Loads</h2>
+      {% if loads and loads|length > 0 %}
+        <div class="space-y-3">
+          {% for load in loads %}
+          <div class="bg-slate-800/50 border border-slate-700 p-4 rounded-xl flex justify-between items-center">
+            <div>
+              <p class="text-white font-bold">{{ load.origin }} → {{ load.destination }}</p>
+              <p class="text-slate-400 text-xs">{{ load.equipment_type }} | {{ load.price }}</p>
+            </div>
+            <button class="bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs px-3 py-2 rounded-lg">Deploy Scout</button>
+          </div>
+          {% endfor %}
+        </div>
+      {% else %}
+        <p class="text-slate-500 text-sm">No active loads available yet.</p>
+      {% endif %}
+    </section>
+  </main>
+</body>
+</html>

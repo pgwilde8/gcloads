@@ -1,0 +1,77 @@
+{% extends "layout/base.html" %}
+
+{% block content %}
+<div class="max-w-md mx-auto mt-10 p-6 bg-gray-800 rounded-3xl border border-green-500/30">
+  <h2 class="text-2xl font-black text-white mb-2">Join the Fleet</h2>
+  <p class="text-gray-400 text-sm mb-6">Start turning your miles into $CANDLE.</p>
+
+  {% if error %}
+  <div class="mb-4 p-3 rounded-xl bg-red-900/30 border border-red-500/40 text-red-200 text-sm">{{ error }}</div>
+  {% endif %}
+
+  <form action="/register-trucker" method="POST" class="space-y-4">
+    <div>
+      <label class="text-xs font-bold text-green-400 uppercase">Carrier Name</label>
+      <input type="text" name="carrier_name" required class="w-full bg-gray-900 border border-gray-700 p-3 rounded-xl text-white" placeholder="Your company or fleet name">
+    </div>
+    <div>
+      <label class="text-xs font-bold text-green-400 uppercase mb-2 block">Authority Type</label>
+      <div class="grid grid-cols-2 gap-3 mb-3">
+        <label class="cursor-pointer">
+          <input type="radio" name="authority_type" value="MC" checked class="peer sr-only" onchange="toggleAuthorityType('MC')">
+          <div class="rounded-xl border border-gray-700 bg-gray-900 p-3 text-center transition peer-checked:border-green-500 peer-checked:bg-green-900/20">
+            <span class="text-sm font-medium text-gray-300 peer-checked:text-green-400">MC Number</span>
+          </div>
+        </label>
+        <label class="cursor-pointer">
+          <input type="radio" name="authority_type" value="DOT" class="peer sr-only" onchange="toggleAuthorityType('DOT')">
+          <div class="rounded-xl border border-gray-700 bg-gray-900 p-3 text-center transition peer-checked:border-green-500 peer-checked:bg-green-900/20">
+            <span class="text-sm font-medium text-gray-300 peer-checked:text-green-400">DOT Number</span>
+          </div>
+        </label>
+      </div>
+      <input type="text" name="mc_number" id="mc_number_input" placeholder="MC-123456" class="w-full bg-gray-900 border border-gray-700 p-3 rounded-xl text-white">
+      <input type="text" name="dot_number" id="dot_number_input" placeholder="DOT-1234567" class="w-full bg-gray-900 border border-gray-700 p-3 rounded-xl text-white hidden">
+    </div>
+    <script>
+      function toggleAuthorityType(type) {
+        const mcInput = document.getElementById('mc_number_input');
+        const dotInput = document.getElementById('dot_number_input');
+        if (type === 'MC') {
+          mcInput.classList.remove('hidden');
+          mcInput.required = true;
+          dotInput.classList.add('hidden');
+          dotInput.required = false;
+        } else {
+          mcInput.classList.add('hidden');
+          mcInput.required = false;
+          dotInput.classList.remove('hidden');
+          dotInput.required = true;
+        }
+      }
+      // Initialize on page load
+      document.addEventListener('DOMContentLoaded', () => toggleAuthorityType('MC'));
+    </script>
+    <div>
+      <label class="text-xs font-bold text-gray-400 uppercase">Your Name</label>
+      <input type="text" name="display_name" required class="w-full bg-gray-900 border border-gray-700 p-3 rounded-xl text-white" placeholder="How we'll address you">
+    </div>
+    <hr class="border-gray-700 my-4">
+    <div>
+      <label class="text-xs font-bold text-gray-400 uppercase">Email</label>
+      <input type="email" name="email" required class="w-full bg-gray-900 border border-gray-700 p-3 rounded-xl text-white">
+    </div>
+    <div>
+      <label class="text-xs font-bold text-gray-400 uppercase">Password</label>
+      <input type="password" name="password" required minlength="6" class="w-full bg-gray-900 border border-gray-700 p-3 rounded-xl text-white">
+    </div>
+    <button type="submit" class="w-full bg-green-600 hover:bg-green-500 text-white font-bold py-4 rounded-2xl shadow-lg transition-all active:scale-95">
+      Create My Green Candle Profile
+    </button>
+  </form>
+
+  <p class="text-center text-gray-500 text-sm mt-4">
+    Already have an account? <a href="/login/client" class="text-green-400 hover:underline">Log in</a>
+  </p>
+</div>
+{% endblock %}

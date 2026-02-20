@@ -1,0 +1,56 @@
+{% extends "layout/base.html" %}
+
+{% block content %}
+<section class="max-w-5xl mx-auto px-4 py-16 space-y-10">
+	<header class="text-center space-y-3">
+		<p class="text-sm uppercase tracking-[0.3em] text-emerald-200">Contact</p>
+		<h1 class="text-4xl sm:text-5xl font-extrabold text-white">Get in touch</h1>
+		<p class="text-lg text-gray-300">Questions about Green Candle Dispatch? Fill out the form and we'll respond within one business day.</p>
+	</header>
+
+	{% if success %}
+	<div class="max-w-xl mx-auto p-4 bg-emerald-900/40 border border-emerald-500/50 rounded-xl text-emerald-200 text-center">
+		{{ success }}
+	</div>
+	{% endif %}
+	{% if error %}
+	<div class="max-w-xl mx-auto p-4 bg-red-900/40 border border-red-500/50 rounded-xl text-red-200 text-center">
+		{{ error }}
+	</div>
+	{% endif %}
+
+	<div class="grid md:grid-cols-2 gap-8">
+		<div class="space-y-4 bg-gray-900/60 border border-gray-800 rounded-2xl p-6 shadow-lg">
+			<h3 class="text-xl font-bold text-white">How to reach us</h3>
+			<p class="text-gray-300">We're here to help with driver onboarding, technical questions, and partnership inquiries.</p>
+			<ul class="space-y-3 text-gray-300">
+				<li class="flex gap-3"><span class="text-emerald-300">•</span> Driver setup and load board integration</li>
+				<li class="flex gap-3"><span class="text-emerald-300">•</span> Factoring and broker support</li>
+				<li class="flex gap-3"><span class="text-emerald-300">•</span> Fleet and partnership inquiries</li>
+			</ul>
+			<div class="bg-gray-800/60 rounded-xl p-4 text-sm text-gray-300">
+				<div class="font-semibold text-white">Response time</div>
+				<p>Within one business day. You can also email us directly at <a href="mailto:contact@gcdloads.com" class="text-emerald-400 hover:underline">contact@gcdloads.com</a>.</p>
+			</div>
+		</div>
+
+		<div class="bg-gray-900/60 border border-gray-800 rounded-2xl p-6 shadow-lg">
+			<form action="/contact" method="POST" class="space-y-4">
+				<div>
+					<label class="block text-sm text-gray-300 mb-1" for="name">Name</label>
+					<input id="name" name="name" type="text" placeholder="Jane Doe" class="w-full rounded-lg bg-gray-800 border border-gray-700 text-white px-3 py-2 focus:border-emerald-500 focus:outline-none" />
+				</div>
+				<div>
+					<label class="block text-sm text-gray-300 mb-1" for="email">Email <span class="text-red-400">*</span></label>
+					<input id="email" name="email" type="email" placeholder="you@example.com" required class="w-full rounded-lg bg-gray-800 border border-gray-700 text-white px-3 py-2 focus:border-emerald-500 focus:outline-none" />
+				</div>
+				<div>
+					<label class="block text-sm text-gray-300 mb-1" for="message">Message</label>
+					<textarea id="message" name="message" rows="4" placeholder="Tell us about your fleet, load boards, or questions..." class="w-full rounded-lg bg-gray-800 border border-gray-700 text-white px-3 py-2 focus:border-emerald-500 focus:outline-none"></textarea>
+				</div>
+				<button type="submit" class="w-full bg-emerald-500 hover:bg-emerald-600 text-white font-semibold py-3 rounded-xl transition">Send message</button>
+			</form>
+		</div>
+	</div>
+</section>
+{% endblock %}

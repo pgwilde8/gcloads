@@ -1,0 +1,150 @@
+{% extends "layout/admin_base.html" %}
+{% block content %}
+<script src="https://unpkg.com/htmx.org@1.9.10" crossorigin="anonymous"></script>
+<section class="max-w-6xl mx-auto px-4 py-10 space-y-8">
+  <header class="flex flex-col gap-2">
+    <p class="text-sm uppercase tracking-[0.3em] text-emerald-300">Admin</p>
+    <h1 class="text-3xl sm:text-4xl font-extrabold text-white">Dashboard</h1>
+    <p class="text-gray-300">Monitor Green Candle Dispatch operations, negotiations, and referral income.</p>
+  </header>
+
+  <div class="grid md:grid-cols-2 lg:grid-cols-4 gap-4">
+    <div class="bg-gray-900/60 border border-white/10 rounded-2xl p-4">
+      <p class="text-xs uppercase tracking-wide text-gray-400">Projects</p>
+      <div class="text-3xl font-bold text-white">{{ stats.projects if stats else 0 }}</div>
+      <p class="text-sm text-gray-400">Active client containers</p>
+    </div>
+    <div class="bg-gray-900/60 border border-white/10 rounded-2xl p-4">
+      <p class="text-xs uppercase tracking-wide text-gray-400">Testimonials</p>
+      <div class="text-3xl font-bold text-white">{{ stats.published if stats else 0 }}</div>
+      <p class="text-sm text-gray-400">Published stories</p>
+    </div>
+    <div class="bg-gray-900/60 border border-white/10 rounded-2xl p-4">
+      <p class="text-xs uppercase tracking-wide text-gray-400">Pending Reviews</p>
+      <div class="text-3xl font-bold text-amber-300">{{ stats.pending if stats else 0 }}</div>
+      <p class="text-sm text-gray-400">Awaiting approval</p>
+    </div>
+    <div class="bg-gray-900/60 border border-white/10 rounded-2xl p-4">
+      <p class="text-xs uppercase tracking-wide text-gray-400">Uptime</p>
+      <div class="text-3xl font-bold text-emerald-300">{{ stats.uptime if stats else "99.9%" }}</div>
+      <p class="text-sm text-gray-400">Last 30 days</p>
+    </div>
+  </div>
+
+  <div class="grid lg:grid-cols-3 gap-6">
+    <div class="lg:col-span-2 space-y-4">
+      <div class="bg-gray-900/60 border border-white/10 rounded-2xl p-6">
+        <div class="flex items-center justify-between mb-4">
+          <h2 class="text-xl font-bold text-white">Pending testimonials</h2>
+          <a href="/testimonials" class="text-sm text-emerald-300 hover:text-emerald-200">View all →</a>
+        </div>
+        {% if pending %}
+        <div class="space-y-3">
+          {% for t in pending %}
+          <div class="p-4 rounded-xl bg-gray-800/60 border border-white/5 flex items-start gap-3">
+            <div class="w-10 h-10 rounded-full bg-emerald-500/20 text-emerald-300 font-bold flex items-center justify-center">{{ t.client_name[0]|upper }}</div>
+            <div class="flex-1">
+              <div class="flex items-center justify-between">
+                <p class="text-white font-semibold">{{ t.client_name }}</p>
+                {% if t.event_type %}<span class="text-xs text-gray-400">{{ t.event_type }}</span>{% endif %}
+              </div>
+              <p class="text-gray-300 text-sm mt-1">"{{ t.testimonial_text }}"</p>
+              <div class="text-xs text-gray-500 mt-2">Submitted {{ t.created_at.strftime('%b %d, %Y') if t.created_at else '' }}{% if t.rating %} · Rating: {{ t.rating }}★{% endif %}</div>
+              <div class="flex items-center gap-2 mt-3">
+                <form method="post" action="/admin/testimonials/{{ t.id }}/approve">
+                  <button type="submit" class="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold">Approve</button>
+                </form>
+                <form method="post" action="/admin/testimonials/{{ t.id }}/reject">
+                  <button type="submit" class="px-3 py-1.5 rounded-lg bg-gray-700 hover:bg-gray-600 text-white text-xs">Reject</button>
+                </form>
+              </div>
+            </div>
+          </div>
+          {% endfor %}
+        </div>
+        {% else %}
+        <div class="p-6 rounded-xl bg-gray-800/60 border border-white/5 text-center text-gray-300">
+          No pending testimonials right now.
+        </div>
+        {% endif %}
+      </div>
+
+      <div class="bg-gray-900/60 border border-white/10 rounded-2xl p-6">
+        <div class="flex items-center justify-between mb-4">
+          <h2 class="text-xl font-bold text-white">Deployments</h2>
+          <button class="text-sm bg-emerald-500 hover:bg-emerald-600 text-white px-3 py-1.5 rounded-lg">New deploy</button>
+        </div>
+        <div class="overflow-x-auto">
+          <table class="min-w-full text-sm text-left text-gray-300">
+            <thead class="text-xs uppercase text-gray-400">
+              <tr>
+                <th class="py-2 pr-4">Client</th>
+                <th class="py-2 pr-4">Version</th>
+                <th class="py-2 pr-4">Status</th>
+                <th class="py-2 pr-4">Updated</th>
+              </tr>
+            </thead>
+            <tbody class="divide-y divide-white/5">
+              <tr>
+                <td class="py-3 pr-4">Client A</td>
+                <td class="py-3 pr-4">v1.2.0</td>
+                <td class="py-3 pr-4 text-emerald-300">Running</td>
+                <td class="py-3 pr-4 text-gray-400">2h ago</td>
+              </tr>
+              <tr>
+                <td class="py-3 pr-4">Client B</td>
+                <td class="py-3 pr-4">v1.1.4</td>
+                <td class="py-3 pr-4 text-amber-300">Pending</td>
+                <td class="py-3 pr-4 text-gray-400">5h ago</td>
+              </tr>
+              <tr>
+                <td class="py-3 pr-4">Client C</td>
+                <td class="py-3 pr-4">v1.0.9</td>
+                <td class="py-3 pr-4 text-emerald-300">Running</td>
+                <td class="py-3 pr-4 text-gray-400">1d ago</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <aside class="space-y-4">
+      <div hx-get="/admin/network-health" hx-trigger="load" hx-swap="innerHTML" class="min-h-[120px] flex items-center justify-center">
+        <span class="text-gray-500 text-sm">Loading…</span>
+      </div>
+      <div hx-get="/admin/revenue-stats" hx-trigger="load" hx-swap="innerHTML" class="min-h-[120px] flex items-center justify-center">
+        <span class="text-gray-500 text-sm">Loading…</span>
+      </div>
+      <div hx-get="/admin/referral-stats" hx-trigger="load" hx-swap="innerHTML" class="min-h-[300px] flex items-center justify-center">
+        <span class="text-gray-500 text-sm">Loading referral stats…</span>
+      </div>
+      <div hx-get="/admin/usage-stats" hx-trigger="load" hx-swap="innerHTML" class="min-h-[200px] flex items-center justify-center">
+        <span class="text-gray-500 text-sm">Loading usage stats…</span>
+      </div>
+      <div hx-get="/admin/trucker-leaderboard" hx-trigger="load" hx-swap="innerHTML" class="min-h-[300px] flex items-center justify-center">
+        <span class="text-gray-500 text-sm">Loading leaderboard…</span>
+      </div>
+      <div class="bg-gray-900/60 border border-white/10 rounded-2xl p-6">
+        <h3 class="text-lg font-bold text-white mb-3">System status</h3>
+        <ul class="space-y-3 text-sm text-gray-300">
+          <li class="flex items-center gap-2"><span class="w-2 h-2 rounded-full bg-emerald-400"></span> API responding</li>
+          <li class="flex items-center gap-2"><span class="w-2 h-2 rounded-full bg-emerald-400"></span> DB connected</li>
+          <li class="flex items-center gap-2"><span class="w-2 h-2 rounded-full bg-emerald-400"></span> Worker idle</li>
+        </ul>
+      </div>
+
+      <div class="bg-gray-900/60 border border-white/10 rounded-2xl p-6 space-y-3">
+        <h3 class="text-lg font-bold text-white">Quick actions</h3>
+        <div class="flex flex-col gap-2 text-sm">
+          <a class="bg-emerald-500 hover:bg-emerald-600 text-white rounded-lg px-3 py-2 text-center" href="/admin/drivers">Manage Drivers</a>
+          <a class="bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg px-3 py-2 text-center" href="/admin/cards">Card Fulfillment</a>
+          <a class="bg-gray-800 hover:bg-gray-700 text-white rounded-lg px-3 py-2 text-center" href="/testimonials">Review testimonials</a>
+          <a class="bg-gray-800 hover:bg-gray-700 text-white rounded-lg px-3 py-2 text-center" href="/contact">View inquiries</a>
+          <a class="bg-gray-800 hover:bg-gray-700 text-white rounded-lg px-3 py-2 text-center" href="/services">Service catalog</a>
+        </div>
+      </div>
+    </aside>
+  </div>
+</section>
+{% endblock %}

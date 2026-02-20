@@ -1,0 +1,161 @@
+{% extends "layout/base.html" %}
+
+{% block content %}
+
+<div class="bg-yellow-600 text-yellow-900 text-center py-3 px-4 font-bold text-sm sm:text-base">
+    🚧 Under Construction 🚧
+</div>
+
+<div class="bg-slate-900 overflow-hidden">
+    <div class="max-w-6xl mx-auto px-4 py-16 sm:py-20 flex flex-col md:flex-row items-center gap-12 md:gap-16">
+        <div class="flex-1 text-left">
+            <div class="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-green-900/50 border border-green-500/30 text-green-400 text-xs font-bold uppercase tracking-widest mb-6">
+                <span class="w-2 h-2 rounded-full bg-green-500 animate-pulse"></span>
+                Accepting Beta Owner-Operators
+            </div>
+
+            <h1 class="text-4xl sm:text-5xl lg:text-6xl font-black text-white mb-4 tracking-tight">
+                Drive the Truck.<br>
+                <span class="text-transparent bg-clip-text bg-gradient-to-r from-green-400 to-emerald-600">
+                    We'll Fight for the Rate.
+                </span>
+            </h1>
+
+            <p class="text-lg sm:text-xl text-slate-300 max-w-xl mb-8 leading-relaxed">
+                Add your criteria. We scan the boards. The moment a load matches, our <strong>AI starts negotiating</strong>—or alerts you to add a custom message or call. You don't miss a load.
+            </p>
+
+            <div class="flex flex-col sm:flex-row gap-4">
+                <a href="/register" class="bg-green-500 hover:bg-green-400 text-slate-900 font-bold py-4 px-8 rounded-xl shadow-lg shadow-green-900/20 transition transform hover:-translate-y-1">
+                    Start Hauling
+                </a>
+                <a href="#how-it-works" class="bg-slate-800 hover:bg-slate-700 text-white font-semibold py-4 px-8 rounded-xl border border-slate-700 transition">
+                    See How It Works
+                </a>
+            </div>
+            <p class="mt-4 text-slate-500 text-sm flex flex-wrap items-center gap-2">
+                <span class="inline-flex items-center gap-1.5">
+                    <span aria-hidden="true">🎵</span> I Scanned Everywhere, Man!
+                </span>
+                <span class="text-green-500/80">Theme track coming soon</span>
+            </p>
+        </div>
+
+        <div class="flex-1 flex items-center justify-center md:justify-end">
+            <img src="/static/images/hero.svg" alt="Dispatch dashboard preview" class="w-full max-w-md h-auto rounded-2xl border border-emerald-500/20" />
+        </div>
+    </div>
+</div>
+
+<section class="bg-slate-950 py-16 px-4 border-y border-slate-800">
+    <div class="max-w-6xl mx-auto">
+        <div class="flex justify-center mb-10">
+            <img src="/static/images/logo.svg" alt="Green Candle Dispatch" class="h-16 sm:h-20 w-auto object-contain" />
+        </div>
+        <div class="grid md:grid-cols-3 gap-8">
+            <div class="bg-slate-900 p-8 rounded-2xl border border-slate-800 hover:border-green-500/30 transition group">
+                <div class="w-14 h-14 bg-slate-800 rounded-xl flex items-center justify-center mb-6 group-hover:bg-green-900/20 transition p-1.5">
+                    <img src="/static/images/mark.svg" alt="" class="w-full h-full object-contain" />
+                </div>
+                <h3 class="text-xl font-bold text-white mb-3">AI Negotiation</h3>
+                <p class="text-slate-400 leading-relaxed">
+                    Brokers try to lowball you. Our AI counters instantly with market data. It doesn't sleep, it doesn't get tired, and it fights for every cent per mile.
+                </p>
+            </div>
+
+            <div class="bg-slate-900 p-8 rounded-2xl border border-slate-800 hover:border-green-500/30 transition group">
+                <div class="w-14 h-14 bg-slate-800 rounded-xl flex items-center justify-center mb-6 group-hover:bg-green-900/20 transition p-1.5">
+                    <img src="/static/images/mark.svg" alt="" class="w-full h-full object-contain" />
+                </div>
+                <h3 class="text-xl font-bold text-white mb-3">Instant Paperwork</h3>
+                <p class="text-slate-400 leading-relaxed">
+                    Hate scanning BOLs at a truck stop? Just snap a photo. We auto-format it and send it directly to factoring so you get paid faster.
+                </p>
+            </div>
+
+            <div class="bg-slate-900 p-8 rounded-2xl border border-slate-800 hover:border-green-500/30 transition group">
+                <div class="w-14 h-14 bg-slate-800 rounded-xl flex items-center justify-center mb-6 group-hover:bg-green-900/20 transition p-1.5">
+                    <img src="/static/images/mark.svg" alt="" class="w-full h-full object-contain" />
+                </div>
+                <h3 class="text-xl font-bold text-white mb-3">Service Credits</h3>
+                <p class="text-slate-400 leading-relaxed">
+                    Flat 2.5%—we handle the work, you keep the rest. Earn service credits back to fuel automation. More loads, less hassle.
+                </p>
+            </div>
+        </div>
+    </div>
+</section>
+
+<section id="how-it-works" class="py-20 px-4 max-w-5xl mx-auto">
+    <div class="text-center mb-16">
+        <h2 class="text-3xl sm:text-4xl font-bold text-white mb-4">Your New Co-Pilot</h2>
+        <p class="text-slate-400">You focus on the road. We handle the noise.</p>
+    </div>
+
+    <div class="space-y-12 relative">
+        <div class="hidden md:block absolute left-1/2 top-0 bottom-0 w-0.5 bg-slate-800 -z-10"></div>
+
+        <div class="flex flex-col md:flex-row items-center gap-8">
+            <div class="flex-1 text-center md:text-right">
+                <h3 class="text-2xl font-bold text-green-400 mb-2">1. The Filter</h3>
+                <p class="text-slate-300">Add your criteria. Our AI scans the boards constantly. The moment a load hits that matches, the app picks it up—starts negotiating or alerts you to add a custom message or call. You're first, not last.</p>
+            </div>
+            <div class="w-16 h-16 rounded-full bg-slate-800 border-4 border-slate-900 flex items-center justify-center z-10 font-bold text-white text-xl">1</div>
+            <div class="flex-1 hidden md:block"></div> </div>
+
+        <div class="flex flex-col md:flex-row items-center gap-8">
+            <div class="flex-1 hidden md:block"></div> <div class="w-16 h-16 rounded-full bg-slate-800 border-4 border-slate-900 flex items-center justify-center z-10 font-bold text-white text-xl">2</div>
+            <div class="flex-1 text-center md:text-left">
+                <h3 class="text-2xl font-bold text-green-400 mb-2">2. The Negotiation</h3>
+                <p class="text-slate-300">You tap "Accept" or hop on the call. We instantly email the broker. If they offer $2,500, our AI counters with $2,800 based on lane data. You don't miss a load—we fight for the rate.</p>
+            </div>
+        </div>
+
+        <div class="flex flex-col md:flex-row items-center gap-8">
+            <div class="flex-1 text-center md:text-right">
+                <h3 class="text-2xl font-bold text-green-400 mb-2">3. Get Paid Faster</h3>
+                <p class="text-slate-300">Load delivered. Snap a photo of the BOL. We format it and push to factoring. Paperwork automation means <strong>faster funding</strong>—less waiting, more driving.</p>
+            </div>
+            <div class="w-16 h-16 rounded-full bg-slate-800 border-4 border-slate-900 flex items-center justify-center z-10 font-bold text-white text-xl">3</div>
+            <div class="flex-1 hidden md:block"></div> </div>
+    </div>
+</section>
+
+<section class="bg-gradient-to-r from-green-900 to-slate-900 py-16 px-4 text-center">
+    <div class="max-w-4xl mx-auto">
+        <h2 class="text-3xl font-bold text-white mb-6">Flat 2.5%—we handle the work, you keep the rest</h2>
+        <p class="text-green-100 text-lg mb-8 leading-relaxed">
+            Most dispatchers take their cut and disappear. We stay in the cab with you. <br>
+            AI scans the boards 24/7. You add your criteria—when a load hits, we negotiate or alert you so you can call. <strong>You don't miss a load.</strong>
+        </p>
+        
+        <div class="grid grid-cols-2 md:grid-cols-4 gap-4 max-w-2xl mx-auto text-center">
+            <div class="bg-black/30 p-4 rounded-lg">
+                <div class="text-2xl font-bold text-white">2.5%</div>
+                <div class="text-xs text-green-300 uppercase">Flat Fee</div>
+            </div>
+            <div class="bg-black/30 p-4 rounded-lg">
+                <div class="text-2xl font-bold text-white">24/7</div>
+                <div class="text-xs text-green-300 uppercase">Board Scan</div>
+            </div>
+            <div class="bg-black/30 p-4 rounded-lg">
+                <div class="text-2xl font-bold text-white">24/7</div>
+                <div class="text-xs text-green-300 uppercase">Support</div>
+            </div>
+            <div class="bg-black/30 p-4 rounded-lg">
+                <div class="text-2xl font-bold text-white">100%</div>
+                <div class="text-xs text-green-300 uppercase">Transparent</div>
+            </div>
+        </div>
+    </div>
+</section>
+
+<div class="text-center py-20 px-4">
+    <h2 class="text-3xl font-bold text-white mb-6">Ready to upgrade your dispatch?</h2>
+    <a href="/register" class="inline-block bg-green-500 hover:bg-green-400 text-slate-900 font-bold py-4 px-12 rounded-xl shadow-lg transition text-lg">
+        Join the Fleet
+    </a>
+    <p class="mt-4 text-slate-500 text-sm">No credit card required to sign up. Pay only when you get paid.</p>
+</div>
+
+{% endblock %}

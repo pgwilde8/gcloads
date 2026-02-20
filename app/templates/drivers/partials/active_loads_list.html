@@ -1,0 +1,115 @@
+{% if negotiation_cards and negotiation_cards|length > 0 %}
+  {% for card in negotiation_cards %}
+  <div class="bg-slate-900 border border-slate-800 p-4 rounded-xl mb-3 space-y-3">
+    <div class="flex justify-between items-center">
+      <div>
+        <p class="text-white font-bold">{{ card.origin }} → {{ card.destination }}</p>
+        <p class="text-slate-400 text-[10px]">{{ card.equipment_type }} | {{ card.price }} | Ref: {{ card.load_ref }}</p>
+      </div>
+      <div class="text-right">
+        <span class="text-blue-500 font-black text-xs">{{ card.status|upper }}</span>
+      </div>
+    </div>
+
+    {% if card.broker_email %}
+    {% if card.has_pending_review %}
+    <div class="bg-violet-900/20 border border-violet-500/50 p-4 rounded-2xl flex justify-between items-center">
+      <div class="flex items-center gap-3">
+        <i class="fas fa-paper-plane text-violet-400"></i>
+        <div>
+          <span class="text-xs font-bold text-violet-300">AI Draft Ready{% if card.pending_review_action %}: {{ card.pending_review_action|replace('_', ' ')|upper }}{% endif %}</span>
+          <p class="text-[10px] text-violet-200/80">Review gate enabled. Approve to send this draft to the broker.</p>
+        </div>
+      </div>
+      <button type="button"
+              onclick="runApproveDraft({{ card.negotiation_id }}, '{{ card.driver_email }}', this)"
+              class="bg-violet-600 hover:bg-violet-500 text-white text-[10px] font-black px-4 py-2 rounded-lg transition-all">
+        ✅ APPROVE &amp; SEND
+      </button>
+    </div>
+    {% elif card.status == 'RATE_CON_RECEIVED' %}
+    <div class="bg-blue-900/40 border-2 border-blue-500 rounded-2xl p-5 mb-4 animate-pulse">
+      <div class="flex justify-between items-center">
+        <div class="flex items-center gap-3">
+          <i class="fas fa-file-signature text-blue-400 text-2xl"></i>
+          <div>
+            <h4 class="text-white font-black text-sm">RATE CON / CONTRACT RECEIVED</h4>
+            <p class="text-blue-300 text-[10px] uppercase font-bold">Action Required: Review &amp; Sign Contract</p>
+          </div>
+        </div>
+        <a href="/drivers/negotiations/{{ card.negotiation_id }}/sign?email={{ card.driver_email }}"
+           target="_blank"
+           class="bg-blue-500 hover:bg-blue-400 text-white font-black px-6 py-2 rounded-xl shadow-lg shadow-blue-500/40 transition-all">
+          ✍️ VIEW &amp; SIGN
+        </a>
+      </div>
+    </div>
+    {% elif card.status == 'CLOSED_PENDING_EMAIL' %}
+    <div class="bg-amber-900/20 border border-amber-500/50 p-4 rounded-2xl flex justify-between items-center">
+      <div class="flex items-center gap-3">
+        <i class="fas fa-exclamation-triangle text-amber-500 animate-pulse"></i>
+        <div>
+          <span class="text-xs font-bold text-amber-500">Packet failed to send. Broker is waiting!</span>
+          <p class="text-[10px] text-amber-300/90">If retry fails twice, check MXRoute SMTP logs before retrying again.</p>
+        </div>
+      </div>
+      <button type="button"
+              onclick="runRetrySecureEmail({{ card.negotiation_id }}, '{{ card.driver_email }}', this)"
+              class="bg-amber-600 hover:bg-amber-500 text-white text-[10px] font-black px-4 py-2 rounded-lg transition-all">
+        🔄 RETRY DISPATCH
+      </button>
+    </div>
+    {% else %}
+    <div class="bg-slate-900 border-b border-green-500/30 p-4 flex justify-between items-center rounded-xl">
+      <div class="flex items-center gap-3">
+        <span class="relative flex h-3 w-3">
+          <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
+          <span class="relative inline-flex rounded-full h-3 w-3 bg-green-500"></span>
+        </span>
+        <span class="text-xs font-black text-green-400 uppercase">AI Negotiating...</span>
+      </div>
+
+      <div class="flex gap-2">
+        <button type="button"
+          onclick="runSecureLoad({{ card.negotiation_id }}, '{{ card.driver_email }}', this)"
+                class="bg-green-600 hover:bg-green-500 text-white text-xs font-black px-6 py-2 rounded-xl shadow-lg shadow-green-500/20 transition-all active:scale-95">
+          🎯 SECURE &amp; SEND PACKET
+        </button>
+
+        <button type="button"
+          onclick="runStopAiManual({{ card.negotiation_id }}, '{{ card.driver_email }}', this)"
+          class="bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white text-xs font-bold px-4 py-2 rounded-xl transition">
+          Stop AI (Manual Mode)
+        </button>
+      </div>
+    </div>
+
+    <div class="flex flex-wrap gap-2">
+      <button type="button"
+              class="bg-emerald-600 hover:bg-emerald-500 text-white text-[11px] font-bold px-3 py-2 rounded-lg transition"
+              onclick="runQuickReply('counter', {{ card.negotiation_id }}, '{{ card.driver_email }}', this)">
+        💰 Counter +$200
+      </button>
+      <button type="button"
+              class="bg-amber-600 hover:bg-amber-500 text-white text-[11px] font-bold px-3 py-2 rounded-lg transition"
+              onclick="runQuickReply('finalize', {{ card.negotiation_id }}, '{{ card.driver_email }}', this)">
+        🤝 Finalize
+      </button>
+    </div>
+    {% endif %}
+    {% else %}
+    <p class="text-[11px] text-amber-400 font-semibold">No broker email found for this negotiation.</p>
+    {% endif %}
+  </div>
+  {% endfor %}
+{% else %}
+  <div class="bg-slate-900 border border-slate-800 rounded-2xl p-10 text-center">
+    <div class="bg-slate-800 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4 text-slate-600">
+      <i class="fas fa-radar text-2xl"></i>
+    </div>
+    <h4 class="text-white font-bold">Scanning for Opportunities</h4>
+    <p class="text-slate-500 text-xs mt-2 max-w-xs mx-auto">
+      No active negotiations yet. Scout will populate this feed as soon as new loads are ingested.
+    </p>
+  </div>
+{% endif %}

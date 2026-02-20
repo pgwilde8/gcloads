@@ -1,0 +1,33 @@
+# Secrets / local env
+.env
+.env2
+.env.*
+!.env.example
+
+# Python
+.venv/
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+
+# Tooling caches
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
+
+# Logs / runtime
+*.log
+*.pid
+
+# Local data (do not version)
+postgres_data/
+tmp/
+
+# Editor / OS
+.vscode/
+.idea/
+.DS_Store

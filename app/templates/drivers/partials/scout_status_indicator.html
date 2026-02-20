@@ -1,0 +1,12 @@
+<div class="flex items-center justify-between">
+  <div>
+    <p class="text-[10px] font-black text-slate-500 uppercase tracking-widest">Scout Engine</p>
+    <p class="text-white font-bold mt-1">{% if status == 'active' %}Online & Scanning{% else %}Offline{% endif %}</p>
+    <p class="text-slate-400 text-xs mt-1">Refreshes every 60 seconds</p>
+  </div>
+  {% if status == 'active' %}
+    <span class="inline-flex items-center gap-2 text-green-400 font-bold text-xs"><span class="h-2 w-2 rounded-full bg-green-500 animate-pulse"></span>ACTIVE</span>
+  {% else %}
+    <span class="inline-flex items-center gap-2 text-slate-400 font-bold text-xs"><span class="h-2 w-2 rounded-full bg-slate-500"></span>OFFLINE</span>
+  {% endif %}
+</div>

@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{% block title %}Green Candle Dispatch{% endblock %}</title>
+  <link rel="icon" type="image/svg+xml" href="/static/images/favicon.svg">
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/htmx.org@1.9.10"></script>
+</head>
+<body class="bg-black text-white font-sans">
+  {% include "layout/navbar.html" %}
+  {% block content %}{% endblock %}
+  {% include "layout/footer.html" %}
+
+  <!-- Chat widget -->
+  <div id="chat-toggle" class="fixed bottom-6 right-6 bg-emerald-500 hover:bg-emerald-600 text-white rounded-full w-14 h-14 flex items-center justify-center shadow-xl cursor-pointer transition" aria-label="Open chat">
+    💬
+  </div>
+
+  <div id="chat-panel" class="fixed bottom-24 right-6 w-80 max-w-[92vw] bg-gray-900 border border-white/10 rounded-2xl shadow-2xl hidden flex-col overflow-hidden">
+    <div class="flex items-center justify-between px-4 py-3 border-b border-white/10">
+      <div>
+        <p class="text-sm text-emerald-300 uppercase tracking-[0.2em]">Assistant</p>
+        <p class="text-white font-semibold text-sm">Ask anything about this site</p>
+      </div>
+      <button id="chat-close" class="text-gray-400 hover:text-white text-lg" aria-label="Close chat">×</button>
+    </div>
+    <div id="chat-messages" class="flex-1 overflow-y-auto px-4 py-3 space-y-3 text-sm max-h-80">
+      <div class="text-gray-400">I’m here to help. Ask me about services, pricing, or anything else.</div>
+    </div>
+    <form id="chat-form" class="border-t border-white/10 flex items-center gap-2 px-3 py-3 bg-gray-950">
+      <input id="chat-input" type="text" name="message" class="flex-1 bg-gray-800 text-white text-sm rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-emerald-500" placeholder="Type your question..." autocomplete="off" />
+      <button type="submit" id="chat-send" class="bg-emerald-500 hover:bg-emerald-600 text-white text-sm font-semibold px-3 py-2 rounded-lg disabled:opacity-60 disabled:cursor-not-allowed">Send</button>
+    </form>
+  </div>
+
+  <script>
+    const chatToggle = document.getElementById('chat-toggle');
+    const chatPanel = document.getElementById('chat-panel');
+    const chatClose = document.getElementById('chat-close');
+    const chatForm = document.getElementById('chat-form');
+    const chatInput = document.getElementById('chat-input');
+    const chatMessages = document.getElementById('chat-messages');
+    const chatSend = document.getElementById('chat-send');
+    let responseId = null;
+    let greetingShown = false;
+
+    function toggleChat(show) {
+      const isHidden = chatPanel.classList.contains('hidden');
+      if (show === true || (isHidden && show === undefined)) {
+        chatPanel.classList.remove('hidden');
+        chatInput.focus();
+        // Show greeting when chat opens for first time
+        if (!greetingShown && chatMessages.children.length === 1) {
+          showGreeting();
+        }
+      } else {
+        chatPanel.classList.add('hidden');
+      }
+    }
+
+    function appendMessage(role, text) {
+      const div = document.createElement('div');
+      div.className = role === 'user' ? 'text-right' : 'text-left';
+      const bubble = document.createElement('div');
+      bubble.className = role === 'user'
+        ? 'inline-block bg-emerald-600 text-white px-3 py-2 rounded-xl text-sm'
+        : 'inline-block bg-gray-800 text-gray-100 px-3 py-2 rounded-xl text-sm';
+      
+      // Make links clickable in assistant messages
+      if (role === 'assistant') {
+        bubble.innerHTML = text.replace(
+          /(\/(?:beta\/apply|register|login\/client|register-trucker))/g,
+          '<a href="$1" class="text-emerald-400 hover:text-emerald-300 underline font-semibold">$1</a>'
+        );
+      } else {
+        bubble.textContent = text;
+      }
+      
+      div.appendChild(bubble);
+      chatMessages.appendChild(div);
+      chatMessages.scrollTop = chatMessages.scrollHeight;
+    }
+
+    async function sendMessage(text) {
+      chatSend.disabled = true;
+      appendMessage('user', text);
+      try {
+        const res = await fetch('/api/chat', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ message: text, response_id: responseId }),
+        });
+        if (!res.ok) {
+          const data = await res.json().catch(() => ({}));
+          const msg = data.detail || 'Error contacting assistant';
+          appendMessage('assistant', msg);
+        } else {
+          const data = await res.json();
+          responseId = data.response_id || data.conversation_id || responseId;
+          appendMessage('assistant', data.reply || 'No response');
+        }
+      } catch (e) {
+        appendMessage('assistant', 'Network error, please try again.');
+      } finally {
+        chatSend.disabled = false;
+      }
+    }
+
+    async function showGreeting() {
+      if (greetingShown) return;
+      try {
+        const res = await fetch('/api/chat/greeting');
+        if (res.ok) {
+          const data = await res.json();
+          responseId = data.response_id || data.conversation_id;
+          appendMessage('assistant', data.reply || 'Hey! I\'m the Green Candle AI. Looking for loads or want to hear about our 2.5% dispatch fee?');
+          greetingShown = true;
+        }
+      } catch (e) {
+        // Fallback greeting if API fails
+        appendMessage('assistant', 'Hey! I\'m the Green Candle AI. Looking for loads or want to hear about our 2.5% dispatch fee?');
+        greetingShown = true;
+      }
+    }
+
+    chatToggle?.addEventListener('click', () => toggleChat());
+    chatClose?.addEventListener('click', () => toggleChat(false));
+    chatForm?.addEventListener('submit', (e) => {
+      e.preventDefault();
+      const text = (chatInput.value || '').trim();
+      if (!text) return;
+      chatInput.value = '';
+      sendMessage(text);
+    });
+    
+    // Show greeting on page load if chat is visible (optional)
+    // Uncomment if you want greeting to show automatically:
+    // setTimeout(() => {
+    //   if (!chatPanel.classList.contains('hidden') && !greetingShown) {
+    //     showGreeting();
+    //   }
+    // }, 500);
+  </script>
+</body>
+
+</html>
