@@ -16,7 +16,7 @@
                 <h1 class="text-xl font-black">Rate Con Signature</h1>
                 <p class="text-slate-400 text-sm">Review contract and apply your signature.</p>
             </div>
-            <a href="/drivers/dashboard?email={{ email }}" class="text-slate-300 hover:text-white text-sm font-bold">← Back to Dashboard</a>
+            <a href="/drivers/dashboard" class="text-slate-300 hover:text-white text-sm font-bold">← Back to Dashboard</a>
         </header>
 
         <section class="grid grid-cols-1 lg:grid-cols-2 gap-6">
@@ -66,7 +66,6 @@
 
             const signatureData = signaturePad.toDataURL('image/png');
             const body = new URLSearchParams({
-                email: '{{ email }}',
                 signature_data: signatureData,
             });
 
@@ -86,7 +85,7 @@
             }
 
             alert('Contract signed successfully.');
-            window.location.href = '/drivers/dashboard?email={{ email }}';
+            window.location.href = '/drivers/dashboard';
         });
     </script>
 </body>

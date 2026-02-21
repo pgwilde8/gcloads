@@ -1,0 +1,19 @@
+{% extends "layout/base.html" %}
+
+{% block content %}
+<div class="max-w-3xl mx-auto mt-12 p-6 bg-gray-800 rounded-3xl border border-emerald-500/30">
+  <h2 class="text-2xl font-black text-white mb-2">Submitted — Century Will Reach Out</h2>
+  <p class="text-gray-300 text-sm mb-6">Your info was sent to our Century contact. Alma will call you soon.</p>
+
+  <div class="mb-6 p-4 rounded-xl bg-emerald-900/20 border border-emerald-500/30 text-emerald-200 text-sm">
+    While pending approval, upload your packet docs now so you’re ready to roll.
+  </div>
+
+  {% include "drivers/partials/packet_readiness_panel.html" %}
+
+  <a href="/onboarding/step3" class="inline-flex items-center gap-2 bg-green-600 hover:bg-green-500 text-white font-bold px-5 py-3 rounded-xl transition">
+    <i class="fas fa-briefcase"></i>
+    Open Digital Briefcase
+  </a>
+</div>
+{% endblock %}

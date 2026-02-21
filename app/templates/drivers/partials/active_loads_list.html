@@ -22,7 +22,7 @@
         </div>
       </div>
       <button type="button"
-              onclick="runApproveDraft({{ card.negotiation_id }}, '{{ card.driver_email }}', this)"
+              onclick="runApproveDraft({{ card.negotiation_id }}, this)"
               class="bg-violet-600 hover:bg-violet-500 text-white text-[10px] font-black px-4 py-2 rounded-lg transition-all">
         ✅ APPROVE &amp; SEND
       </button>
@@ -37,7 +37,7 @@
             <p class="text-blue-300 text-[10px] uppercase font-bold">Action Required: Review &amp; Sign Contract</p>
           </div>
         </div>
-        <a href="/drivers/negotiations/{{ card.negotiation_id }}/sign?email={{ card.driver_email }}"
+        <a href="/drivers/negotiations/{{ card.negotiation_id }}/sign"
            target="_blank"
            class="bg-blue-500 hover:bg-blue-400 text-white font-black px-6 py-2 rounded-xl shadow-lg shadow-blue-500/40 transition-all">
           ✍️ VIEW &amp; SIGN
@@ -54,7 +54,7 @@
         </div>
       </div>
       <button type="button"
-              onclick="runRetrySecureEmail({{ card.negotiation_id }}, '{{ card.driver_email }}', this)"
+              onclick="runRetrySecureEmail({{ card.negotiation_id }}, this)"
               class="bg-amber-600 hover:bg-amber-500 text-white text-[10px] font-black px-4 py-2 rounded-lg transition-all">
         🔄 RETRY DISPATCH
       </button>
@@ -71,13 +71,13 @@
 
       <div class="flex gap-2">
         <button type="button"
-          onclick="runSecureLoad({{ card.negotiation_id }}, '{{ card.driver_email }}', this)"
+          onclick="runSecureLoad({{ card.negotiation_id }}, this)"
                 class="bg-green-600 hover:bg-green-500 text-white text-xs font-black px-6 py-2 rounded-xl shadow-lg shadow-green-500/20 transition-all active:scale-95">
           🎯 SECURE &amp; SEND PACKET
         </button>
 
         <button type="button"
-          onclick="runStopAiManual({{ card.negotiation_id }}, '{{ card.driver_email }}', this)"
+          onclick="runStopAiManual({{ card.negotiation_id }}, this)"
           class="bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white text-xs font-bold px-4 py-2 rounded-xl transition">
           Stop AI (Manual Mode)
         </button>
@@ -86,16 +86,34 @@
 
     <div class="flex flex-wrap gap-2">
       <button type="button"
+              class="bg-blue-600 hover:bg-blue-500 text-white text-[11px] font-bold px-3 py-2 rounded-lg transition"
+              onclick="runComposePacket({{ card.negotiation_id }}, this)">
+        {% if card.has_bol_packet %}
+        📦 BOL Packet Ready (Rebuild)
+        {% elif card.has_bol_raw %}
+        📦 Compose BOL Packet
+        {% else %}
+        📦 Build BOL Packet
+        {% endif %}
+      </button>
+      <button type="button"
               class="bg-emerald-600 hover:bg-emerald-500 text-white text-[11px] font-bold px-3 py-2 rounded-lg transition"
-              onclick="runQuickReply('counter', {{ card.negotiation_id }}, '{{ card.driver_email }}', this)">
+              onclick="runQuickReply('counter', {{ card.negotiation_id }}, this)">
         💰 Counter +$200
       </button>
       <button type="button"
               class="bg-amber-600 hover:bg-amber-500 text-white text-[11px] font-bold px-3 py-2 rounded-lg transition"
-              onclick="runQuickReply('finalize', {{ card.negotiation_id }}, '{{ card.driver_email }}', this)">
+              onclick="runQuickReply('finalize', {{ card.negotiation_id }}, this)">
         🤝 Finalize
       </button>
     </div>
+    <div class="text-[10px] text-slate-500 mt-2">
+      Docs:
+      <span class="{% if card.has_bol_raw %}text-emerald-400{% else %}text-slate-500{% endif %}">BOL Raw{% if card.has_bol_raw %} ✓{% endif %}</span>
+      ·
+      <span class="{% if card.has_bol_packet %}text-emerald-400{% else %}text-slate-500{% endif %}">BOL Packet{% if card.has_bol_packet %} ✓{% endif %}</span>
+    </div>
+    <div id="compose-status-{{ card.negotiation_id }}" class="text-[11px] mt-2 text-slate-400"></div>
     {% endif %}
     {% else %}
     <p class="text-[11px] text-amber-400 font-semibold">No broker email found for this negotiation.</p>

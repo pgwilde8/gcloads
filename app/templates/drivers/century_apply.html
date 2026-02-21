@@ -1,0 +1,75 @@
+{% extends "layout/base.html" %}
+
+{% block content %}
+<div class="max-w-3xl mx-auto mt-10 p-6 bg-gray-800 rounded-3xl border border-green-500/30">
+  <h2 class="text-2xl font-black text-white mb-2">Century Finance Application</h2>
+  <p class="text-gray-400 text-sm mb-6">We’ll send your details directly to our Century contact.</p>
+
+  {% if error %}
+  <div class="mb-4 p-3 rounded-xl bg-red-900/30 border border-red-500/40 text-red-200 text-sm">{{ error }}</div>
+  {% endif %}
+
+  <form action="/century/apply" method="POST" class="space-y-4">
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+      <div>
+        <label class="text-xs font-bold text-gray-400 uppercase">Full Name *</label>
+        <input type="text" name="full_name" required value="{{ driver.display_name or '' }}" class="w-full bg-gray-900 border border-gray-700 p-3 rounded-xl text-white">
+      </div>
+      <div>
+        <label class="text-xs font-bold text-gray-400 uppercase">Email *</label>
+        <input type="email" name="email" required value="{{ driver.email or '' }}" readonly class="w-full bg-gray-900 border border-gray-700 p-3 rounded-xl text-white opacity-80 cursor-not-allowed">
+      </div>
+      <div>
+        <label class="text-xs font-bold text-gray-400 uppercase">Cell Phone *</label>
+        <input type="text" name="cell_phone" required class="w-full bg-gray-900 border border-gray-700 p-3 rounded-xl text-white">
+      </div>
+      <div>
+        <label class="text-xs font-bold text-gray-400 uppercase">Secondary Phone</label>
+        <input type="text" name="secondary_phone" class="w-full bg-gray-900 border border-gray-700 p-3 rounded-xl text-white">
+      </div>
+      <div>
+        <label class="text-xs font-bold text-gray-400 uppercase">MC Number *</label>
+        <input type="text" name="mc_number" required value="{{ driver.mc_number or '' }}" class="w-full bg-gray-900 border border-gray-700 p-3 rounded-xl text-white">
+      </div>
+      <div>
+        <label class="text-xs font-bold text-gray-400 uppercase">DOT Number *</label>
+        <input type="text" name="dot_number" required value="{{ driver.dot_number or '' }}" class="w-full bg-gray-900 border border-gray-700 p-3 rounded-xl text-white">
+      </div>
+      <div>
+        <label class="text-xs font-bold text-gray-400 uppercase">Number of Trucks *</label>
+        <input type="text" name="number_of_trucks" required class="w-full bg-gray-900 border border-gray-700 p-3 rounded-xl text-white">
+      </div>
+      <div>
+        <label class="text-xs font-bold text-gray-400 uppercase">Company Name</label>
+        <input type="text" name="company_name" class="w-full bg-gray-900 border border-gray-700 p-3 rounded-xl text-white">
+      </div>
+      <div>
+        <label class="text-xs font-bold text-gray-400 uppercase">Estimated Monthly Volume</label>
+        <input type="text" name="estimated_monthly_volume" class="w-full bg-gray-900 border border-gray-700 p-3 rounded-xl text-white">
+      </div>
+      <div>
+        <label class="text-xs font-bold text-gray-400 uppercase">Current Factoring Company</label>
+        <input type="text" name="current_factoring_company" class="w-full bg-gray-900 border border-gray-700 p-3 rounded-xl text-white">
+      </div>
+      <div>
+        <label class="text-xs font-bold text-gray-400 uppercase">Preferred Funding Speed</label>
+        <select name="preferred_funding_speed" class="w-full bg-gray-900 border border-gray-700 p-3 rounded-xl text-white">
+          <option value="">Select</option>
+          <option value="same_day">Same day</option>
+          <option value="next_day">Next day</option>
+          <option value="standard">Standard</option>
+        </select>
+      </div>
+    </div>
+
+    <label class="inline-flex items-center gap-2 text-sm text-gray-300">
+      <input type="checkbox" name="interested_fuel_card" value="1" class="rounded border-gray-600 bg-gray-900">
+      Interested in fuel card options
+    </label>
+
+    <button type="submit" class="w-full bg-green-600 hover:bg-green-500 text-white font-bold py-4 rounded-2xl shadow-lg transition-all active:scale-95">
+      Submit to Century
+    </button>
+  </form>
+</div>
+{% endblock %}

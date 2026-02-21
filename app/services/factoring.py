@@ -163,17 +163,32 @@ def send_negotiation_to_factoring(
 
     attachments: list[dict[str, str]] = []
 
+    composed_packet_docs = get_active_documents(
+        db,
+        driver_id=driver_id,
+        negotiation_id=negotiation_id,
+        doc_types=["NEGOTIATION_PACKET", "FACTOR_PACKET"],
+    )
+    if composed_packet_docs:
+        packet_url = _attachment_url(composed_packet_docs[0].get("bucket"), composed_packet_docs[0]["file_key"])
+        if packet_url:
+            attachments.append({"type": "PACKET", "url": packet_url, "note": "Composed negotiation packet"})
+            ratecon_docs = []
+            packet_map = {}
+
     bol_url = _attachment_url(bol_docs[0].get("bucket"), bol_docs[0]["file_key"])
     if not bol_url:
         return {"ok": False, "message": "bol_not_accessible_in_spaces"}
-    attachments.append({"type": "BOL", "url": bol_url, "note": "Processed bill of lading"})
+    if not attachments:
+        attachments.append({"type": "BOL", "url": bol_url, "note": "Processed bill of lading"})
 
-    for packet_doc_type in ("W9", "INSURANCE", "AUTHORITY"):
-        packet_doc = packet_map[packet_doc_type]
-        url = _attachment_url(packet_doc.get("bucket"), packet_doc["file_key"])
-        if not url:
-            return {"ok": False, "message": f"{packet_doc_type.lower()}_not_accessible_in_spaces"}
-        attachments.append({"type": packet_doc_type, "url": url, "note": "Carrier packet document"})
+    if not attachments or attachments[0].get("type") != "PACKET":
+        for packet_doc_type in ("W9", "INSURANCE", "AUTHORITY"):
+            packet_doc = packet_map[packet_doc_type]
+            url = _attachment_url(packet_doc.get("bucket"), packet_doc["file_key"])
+            if not url:
+                return {"ok": False, "message": f"{packet_doc_type.lower()}_not_accessible_in_spaces"}
+            attachments.append({"type": packet_doc_type, "url": url, "note": "Carrier packet document"})
 
     if ratecon_docs:
         ratecon_url = _attachment_url(ratecon_docs[0].get("bucket"), ratecon_docs[0]["file_key"])

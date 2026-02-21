@@ -42,7 +42,6 @@
                   hx-encoding="multipart/form-data" 
                   hx-target="#slot-{{ doc[0] }}" 
                   hx-swap="outerHTML">
-                <input type="hidden" name="email" value="{{ email }}">
                 <input type="hidden" name="doc_type" value="{{ doc[0] }}">
                 <label class="cursor-pointer bg-slate-800 hover:bg-green-600 text-white text-xs font-bold px-4 py-2 rounded-lg transition-all">
                     <span>Upload</span>
@@ -56,7 +55,7 @@
 
     <div id="finish-area" class="text-center opacity-50 pointer-events-none transition-all">
         <p class="text-slate-500 text-xs mb-4">Complete all 3 uploads to activate your account.</p>
-        <a href="/drivers/dashboard?welcome=true{% if email %}&email={{ email }}{% endif %}" 
+        <a href="/drivers/dashboard?welcome=true" 
            class="block w-full bg-green-600 hover:bg-green-500 text-white font-black py-4 rounded-2xl shadow-lg shadow-green-500/20 active:scale-95 transition-all">
             ENTER DASHBOARD
         </a>

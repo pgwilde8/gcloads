@@ -227,3 +227,129 @@ async def send_outbound_email(
         load_source=load_source,
         negotiation_id=negotiation_id,
     )
+
+
+def send_magic_link_email(to_email: str, verify_url: str) -> bool:
+    smtp_host = os.getenv("MXROUTE_SMTP_HOST") or os.getenv("EMAIL_HOST")
+    smtp_port = int(os.getenv("MXROUTE_SMTP_PORT") or os.getenv("EMAIL_PORT") or "465")
+    smtp_user = os.getenv("MXROUTE_SMTP_USER") or os.getenv("EMAIL_USER")
+    smtp_password = os.getenv("MXROUTE_SMTP_PASSWORD") or os.getenv("EMAIL_PASS")
+    email_domain = os.getenv("EMAIL_DOMAIN", "gcdloads.com")
+
+    if not all([smtp_host, smtp_user, smtp_password, to_email, verify_url]):
+        return False
+
+    message = EmailMessage()
+    message["Subject"] = "Your Green Candle sign-in link"
+    message["From"] = f"dispatch@{email_domain}"
+    message["To"] = to_email
+    message.set_content(
+        (
+            "Welcome to Green Candle Dispatch.\n\n"
+            "Use this secure sign-in link (expires soon):\n"
+            f"{verify_url}\n\n"
+            "If you did not request this, you can ignore this email."
+        )
+    )
+
+    try:
+        with smtplib.SMTP_SSL(smtp_host, smtp_port, timeout=20) as client:
+            client.login(smtp_user, smtp_password)
+            client.send_message(message, from_addr=smtp_user, to_addrs=[to_email])
+    except Exception:
+        return False
+
+    return True
+
+
+def send_century_referral_email(
+    *,
+    to_email: str,
+    full_name: str,
+    email: str,
+    cell_phone: str,
+    mc_number: str,
+    dot_number: str,
+    number_of_trucks: str,
+    secondary_phone: str | None = None,
+    company_name: str | None = None,
+    interested_fuel_card: bool = False,
+    estimated_monthly_volume: str | None = None,
+    current_factoring_company: str | None = None,
+    preferred_funding_speed: str | None = None,
+) -> bool:
+    smtp_host = os.getenv("MXROUTE_SMTP_HOST") or os.getenv("EMAIL_HOST")
+    smtp_port = int(os.getenv("MXROUTE_SMTP_PORT") or os.getenv("EMAIL_PORT") or "465")
+    smtp_user = os.getenv("MXROUTE_SMTP_USER") or os.getenv("EMAIL_USER")
+    smtp_password = os.getenv("MXROUTE_SMTP_PASSWORD") or os.getenv("EMAIL_PASS")
+    email_domain = os.getenv("EMAIL_DOMAIN", "gcdloads.com")
+
+    if not all([smtp_host, smtp_user, smtp_password, to_email]):
+        return False
+
+    message = EmailMessage()
+    message["Subject"] = f"New Century Referral - MC# {mc_number} DOT# {dot_number}"
+    message["From"] = f"dispatch@{email_domain}"
+    message["To"] = to_email
+    message.set_content(
+        "\n".join(
+            [
+                "New Century Finance referral submitted:",
+                "",
+                f"Full Name: {full_name}",
+                f"Email: {email}",
+                f"Cell Phone: {cell_phone}",
+                f"Secondary Phone: {secondary_phone or ''}",
+                f"Company Name: {company_name or ''}",
+                f"MC Number: {mc_number}",
+                f"DOT Number: {dot_number}",
+                f"Number of Trucks: {number_of_trucks}",
+                f"Interested in Fuel Card: {'Yes' if interested_fuel_card else 'No'}",
+                f"Estimated Monthly Volume: {estimated_monthly_volume or ''}",
+                f"Current Factoring Company: {current_factoring_company or ''}",
+                f"Preferred Funding Speed: {preferred_funding_speed or ''}",
+            ]
+        )
+    )
+
+    try:
+        with smtplib.SMTP_SSL(smtp_host, smtp_port, timeout=20) as client:
+            client.login(smtp_user, smtp_password)
+            client.send_message(message, from_addr=smtp_user, to_addrs=[to_email])
+    except Exception:
+        return False
+
+    return True
+
+
+def send_century_approval_email(*, to_email: str, driver_name: str | None = None) -> bool:
+    smtp_host = os.getenv("MXROUTE_SMTP_HOST") or os.getenv("EMAIL_HOST")
+    smtp_port = int(os.getenv("MXROUTE_SMTP_PORT") or os.getenv("EMAIL_PORT") or "465")
+    smtp_user = os.getenv("MXROUTE_SMTP_USER") or os.getenv("EMAIL_USER")
+    smtp_password = os.getenv("MXROUTE_SMTP_PASSWORD") or os.getenv("EMAIL_PASS")
+    email_domain = os.getenv("EMAIL_DOMAIN", "gcdloads.com")
+
+    if not all([smtp_host, smtp_user, smtp_password, to_email]):
+        return False
+
+    message = EmailMessage()
+    message["Subject"] = "Century approval complete - your Green Candle account is active"
+    message["From"] = f"dispatch@{email_domain}"
+    message["To"] = to_email
+    message.set_content(
+        (
+            f"Hi {(driver_name or 'Driver').strip()},\n\n"
+            "Your Century setup has been approved and your account is now active.\n"
+            "Log in with your magic link to continue dispatching.\n\n"
+            "Green Candle Dispatch"
+        )
+    )
+
+    try:
+        with smtplib.SMTP_SSL(smtp_host, smtp_port, timeout=20) as client:
+            client.login(smtp_user, smtp_password)
+            client.send_message(message, from_addr=smtp_user, to_addrs=[to_email])
+    except Exception:
+        return False
+
+    return True

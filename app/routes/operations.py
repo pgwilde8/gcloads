@@ -5,8 +5,8 @@ import hashlib
 from pathlib import Path
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
-from fastapi.responses import FileResponse
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from PyPDF2 import PdfReader, PdfWriter
 from reportlab.lib.utils import ImageReader
 from reportlab.pdfgen import canvas
@@ -21,12 +21,32 @@ from app.services.email import send_quick_reply_email
 from app.services.document_registry import upsert_driver_document
 from app.services.factoring import send_negotiation_to_factoring
 from app.services.ledger import process_load_fees
+from app.services.packet_compose import compose_negotiation_packet
+from app.services.packet_readiness import packet_readiness_for_driver
 from app.services.packet_storage import save_bytes_by_key
 from app.services.packet_manager import log_packet_snapshot
-from app.services.storage_keys import bol_processed_key, bol_raw_key
+from app.services.storage_keys import bol_processed_key, bol_raw_key, ratecon_key
 
 
 router = APIRouter(tags=["operations"])
+
+
+def _session_driver(request: Request, db: Session) -> Driver | None:
+    session_driver_id = request.session.get("user_id")
+    if not session_driver_id:
+        return None
+    return db.query(Driver).filter(Driver.id == session_driver_id).first()
+
+
+def _parse_strict_bool(value: str | None, default: bool = False) -> bool:
+    if value is None:
+        return default
+    normalized = value.strip().lower()
+    if normalized == "true":
+        return True
+    if normalized == "false":
+        return False
+    return default
 
 
 def _sha256_hex(file_bytes: bytes) -> str:
@@ -54,6 +74,112 @@ def _packet_files_for_driver(driver_id: int) -> list[Path]:
         driver_dir / "w9.pdf",
     ]
     return [file_path for file_path in files if file_path.exists()]
+
+
+def _missing_docs_response(request: Request, missing_labels: list[str]):
+    accepts_html = "text/html" in (request.headers.get("accept") or "").lower()
+    is_hx = request.headers.get("HX-Request") == "true"
+
+    if accepts_html or is_hx:
+        missing_text = ", ".join(missing_labels) if missing_labels else "W-9, COI, MC Authority"
+        html = (
+            '<div class="bg-amber-900/20 border border-amber-500/50 rounded-xl p-4 mb-3">'
+            '<div class="text-amber-300 text-xs font-black uppercase tracking-wider">Upload required before booking</div>'
+            f'<p class="text-amber-200 text-xs mt-2">Upload {missing_text} to book loads.</p>'
+            '<a href="/onboarding/step3" class="mt-3 inline-flex items-center gap-2 bg-amber-600 hover:bg-amber-500 text-white text-xs font-bold px-3 py-2 rounded-lg">'
+            '<i class="fas fa-briefcase"></i> Upload docs</a>'
+            '</div>'
+        )
+        return HTMLResponse(status_code=409, content=html)
+
+    return JSONResponse(
+        status_code=409,
+        content={
+            "status": "error",
+            "message": "packet_readiness_required",
+            "banner": "Upload W-9, COI, and MC Authority to book loads.",
+            "redirect_url": "/onboarding/step3",
+            "missing_docs": missing_labels,
+        },
+    )
+
+
+def _packet_readiness_block(request: Request, db: Session, driver_id: int):
+    readiness = packet_readiness_for_driver(db, driver_id)
+    if readiness.get("ready"):
+        return None
+
+    missing_labels = readiness.get("missing_labels") or []
+    return _missing_docs_response(request, missing_labels)
+
+
+@router.post("/api/negotiations/{negotiation_id}/compose-packet")
+async def compose_packet(
+    request: Request,
+    negotiation_id: int,
+    db: Session = Depends(get_db),
+):
+    selected_driver = _session_driver(request, db)
+    if not selected_driver:
+        return JSONResponse(status_code=401, content={"status": "error", "message": "auth_required"})
+
+    negotiation = (
+        db.query(Negotiation)
+        .filter(
+            Negotiation.id == negotiation_id,
+            Negotiation.driver_id == selected_driver.id,
+        )
+        .first()
+    )
+    if not negotiation:
+        return JSONResponse(status_code=404, content={"status": "error", "message": "negotiation_not_found"})
+
+    include_full_raw = request.query_params.get("include_full_packet")
+    force_raw = request.query_params.get("force")
+    if include_full_raw is None or force_raw is None:
+        try:
+            form_data = await request.form()
+        except Exception:
+            form_data = {}
+        if include_full_raw is None:
+            include_full_raw = form_data.get("include_full_packet")
+        if force_raw is None:
+            force_raw = form_data.get("force")
+
+    include_full_packet = _parse_strict_bool(str(include_full_raw) if include_full_raw is not None else None, default=False)
+    force = _parse_strict_bool(str(force_raw) if force_raw is not None else None, default=False)
+
+    composed = compose_negotiation_packet(
+        db,
+        driver_id=selected_driver.id,
+        negotiation_id=negotiation_id,
+        include_full_packet=include_full_packet,
+        force=force,
+    )
+    if not composed.get("ok"):
+        if composed.get("message") == "packet_readiness_required":
+            return _missing_docs_response(request, list(composed.get("missing_docs") or []))
+        return JSONResponse(status_code=400, content={"status": "error", **composed})
+
+    db.commit()
+    response_payload = {
+        "status": "ok",
+        "bol_packet_key": composed.get("bol_packet_key"),
+        "bol_packet_bucket": composed.get("bol_packet_bucket"),
+        "bol_packet_url": composed.get("bol_packet_url"),
+        "full_packet_included": bool(composed.get("full_packet_included")),
+        "included_docs": composed.get("included_docs") or [],
+        "missing_docs": [],
+    }
+    if composed.get("full_packet_included"):
+        response_payload.update(
+            {
+                "packet_key": composed.get("packet_key"),
+                "packet_bucket": composed.get("packet_bucket"),
+                "presigned_url": composed.get("presigned_url"),
+            }
+        )
+    return response_payload
 
 
 def _resolve_rate_con_file(driver_id: int, stored_path: str) -> Path:
@@ -134,13 +260,13 @@ def _stamp_signature_on_pdf(source_pdf: Path, signature_png_bytes: bytes, output
 
 @router.get("/drivers/negotiations/{negotiation_id}/view-rate-con")
 async def view_rate_con(
+    request: Request,
     negotiation_id: int,
-    email: str,
     db: Session = Depends(get_db),
 ):
-    selected_driver = db.query(Driver).filter(Driver.email == email.strip().lower()).first()
+    selected_driver = _session_driver(request, db)
     if not selected_driver:
-        raise HTTPException(status_code=404, detail="driver_not_found")
+        raise HTTPException(status_code=401, detail="auth_required")
 
     negotiation = (
         db.query(Negotiation)
@@ -162,14 +288,14 @@ async def view_rate_con(
 
 @router.post("/api/negotiations/{negotiation_id}/apply-signature")
 async def apply_rate_con_signature(
+    request: Request,
     negotiation_id: int,
-    email: str = Form(...),
     signature_data: str = Form(...),
     db: Session = Depends(get_db),
 ):
-    selected_driver = db.query(Driver).filter(Driver.email == email.strip().lower()).first()
+    selected_driver = _session_driver(request, db)
     if not selected_driver:
-        return {"status": "error", "message": "driver_not_found"}
+        return JSONResponse(status_code=401, content={"status": "error", "message": "auth_required"})
 
     negotiation = (
         db.query(Negotiation)
@@ -197,6 +323,28 @@ async def apply_rate_con_signature(
 
     _stamp_signature_on_pdf(source_pdf, signature_png, signed_pdf)
 
+    signed_bytes = signed_pdf.read_bytes()
+    ratecon_storage_key = ratecon_key(selected_driver.id, negotiation.id)
+    save_result = save_bytes_by_key(
+        ratecon_storage_key,
+        signed_bytes,
+        content_type="application/pdf",
+    )
+    if not save_result["local_saved"] and not save_result["spaces_saved"]:
+        return {"status": "error", "message": "ratecon_storage_write_failed"}
+
+    stored_key = ratecon_storage_key if save_result["spaces_saved"] else str(save_result["local_path"])
+    stored_bucket = str(save_result["bucket"]) if save_result["spaces_saved"] and save_result["bucket"] else None
+    upsert_driver_document(
+        db,
+        driver_id=selected_driver.id,
+        negotiation_id=negotiation.id,
+        doc_type="RATECON",
+        bucket=stored_bucket,
+        file_key=stored_key,
+        sha256_hash=_sha256_hex(signed_bytes),
+    )
+
     negotiation.rate_con_path = signed_filename
     negotiation.status = "RATE_CON_SIGNED"
     db.add(
@@ -218,13 +366,13 @@ async def apply_rate_con_signature(
 
 @router.post("/api/negotiations/secure-load")
 async def secure_load_action(
+    request: Request,
     negotiation_id: int = Form(...),
-    email: str = Form(...),
     db: Session = Depends(get_db),
 ):
-    selected_driver = db.query(Driver).filter(Driver.email == email.strip().lower()).first()
+    selected_driver = _session_driver(request, db)
     if not selected_driver:
-        return {"status": "error", "message": "driver_not_found"}
+        return JSONResponse(status_code=401, content={"status": "error", "message": "auth_required"})
 
     negotiation = (
         db.query(Negotiation)
@@ -250,9 +398,21 @@ async def secure_load_action(
     if not broker_email_record or not broker_email_record.email:
         return {"status": "error", "message": "broker_email_not_found"}
 
-    packet_attachments = _packet_files_for_driver(selected_driver.id)
-    if len(packet_attachments) < 3:
-        return {"status": "error", "message": "packet_files_missing"}
+    composed = compose_negotiation_packet(
+        db,
+        driver_id=selected_driver.id,
+        negotiation_id=negotiation.id,
+        include_full_packet=True,
+    )
+    if not composed.get("ok"):
+        if composed.get("message") == "packet_readiness_required":
+            return _missing_docs_response(request, list(composed.get("missing_docs") or []))
+        return {"status": "error", **composed}
+
+    packet_local_path = composed.get("local_path")
+    packet_attachments = [Path(str(packet_local_path))] if packet_local_path else []
+    if not packet_attachments or not packet_attachments[0].exists():
+        return {"status": "error", "message": "packet_compose_local_missing"}
 
     load_ref = load.ref_id or str(load.id)
     subject = f"Load #{load_ref} Accepted - Packet Attached"
@@ -337,14 +497,14 @@ async def secure_load_action(
 
 @router.post("/api/negotiations/{negotiation_id}/upload-bol")
 async def upload_bol(
+    request: Request,
     negotiation_id: int,
-    email: str = Form(...),
     bol_file: UploadFile = File(...),
     db: Session = Depends(get_db),
 ):
-    selected_driver = db.query(Driver).filter(Driver.email == email.strip().lower()).first()
+    selected_driver = _session_driver(request, db)
     if not selected_driver:
-        return {"status": "error", "message": "driver_not_found"}
+        return JSONResponse(status_code=401, content={"status": "error", "message": "auth_required"})
 
     negotiation = (
         db.query(Negotiation)
@@ -363,9 +523,6 @@ async def upload_bol(
 
     original_name = (bol_file.filename or "bol.bin").strip()
     ext = Path(original_name).suffix.lower() or ".bin"
-    safe_stem = "".join(ch for ch in Path(original_name).stem if ch.isalnum() or ch in ("-", "_")) or "bol"
-    raw_name = f"{safe_stem}{ext}"
-
     content_type = (bol_file.content_type or "application/octet-stream").lower()
     if content_type == "application/pdf" or ext == ".pdf":
         processed_pdf = raw_bytes
@@ -377,7 +534,7 @@ async def upload_bol(
     else:
         return {"status": "error", "message": "unsupported_file_type"}
 
-    raw_key = bol_raw_key(selected_driver.id, negotiation.id, raw_name)
+    raw_key = bol_raw_key(selected_driver.id, negotiation.id)
     processed_key = bol_processed_key(selected_driver.id, negotiation.id)
 
     raw_save = save_bytes_by_key(
@@ -433,14 +590,25 @@ async def upload_bol(
 
 @router.post("/api/negotiations/{negotiation_id}/send-to-factoring")
 async def send_to_factoring(
+    request: Request,
     negotiation_id: int,
-    email: str = Form(...),
     dry_run: bool = Form(default=True),
     db: Session = Depends(get_db),
 ):
-    selected_driver = db.query(Driver).filter(Driver.email == email.strip().lower()).first()
+    selected_driver = _session_driver(request, db)
     if not selected_driver:
-        return {"status": "error", "message": "driver_not_found"}
+        return JSONResponse(status_code=401, content={"status": "error", "message": "auth_required"})
+
+    composed = compose_negotiation_packet(
+        db,
+        driver_id=selected_driver.id,
+        negotiation_id=negotiation_id,
+        include_full_packet=True,
+    )
+    if not composed.get("ok"):
+        if composed.get("message") == "packet_readiness_required":
+            return _missing_docs_response(request, list(composed.get("missing_docs") or []))
+        return {"status": "error", **composed}
 
     result = send_negotiation_to_factoring(
         db,
@@ -461,18 +629,23 @@ async def send_to_factoring(
     )
     db.commit()
 
-    return {"status": "ok", **result}
+    return {
+        "status": "ok",
+        "compose_packet_key": composed.get("packet_key"),
+        "compose_packet_bucket": composed.get("packet_bucket"),
+        **result,
+    }
 
 
 @router.post("/api/negotiations/retry-secure-email")
 async def retry_secure_email(
+    request: Request,
     negotiation_id: int = Form(...),
-    email: str = Form(...),
     db: Session = Depends(get_db),
 ):
-    selected_driver = db.query(Driver).filter(Driver.email == email.strip().lower()).first()
+    selected_driver = _session_driver(request, db)
     if not selected_driver:
-        return {"status": "error", "message": "driver_not_found"}
+        return JSONResponse(status_code=401, content={"status": "error", "message": "auth_required"})
 
     negotiation = (
         db.query(Negotiation)
@@ -500,9 +673,21 @@ async def retry_secure_email(
     if not broker_email_record or not broker_email_record.email:
         return {"status": "error", "message": "broker_email_not_found"}
 
-    packet_attachments = _packet_files_for_driver(selected_driver.id)
-    if len(packet_attachments) < 3:
-        return {"status": "error", "message": "packet_files_missing"}
+    composed = compose_negotiation_packet(
+        db,
+        driver_id=selected_driver.id,
+        negotiation_id=negotiation.id,
+        include_full_packet=True,
+    )
+    if not composed.get("ok"):
+        if composed.get("message") == "packet_readiness_required":
+            return _missing_docs_response(request, list(composed.get("missing_docs") or []))
+        return {"status": "error", **composed}
+
+    packet_local_path = composed.get("local_path")
+    packet_attachments = [Path(str(packet_local_path))] if packet_local_path else []
+    if not packet_attachments or not packet_attachments[0].exists():
+        return {"status": "error", "message": "packet_compose_local_missing"}
 
     load_ref = load.ref_id or str(load.id)
     subject = f"Load #{load_ref} Accepted - Packet Attached"

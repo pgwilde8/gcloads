@@ -1,0 +1,35 @@
+<section>
+  <div class="bg-slate-900 border border-slate-800 rounded-2xl p-6">
+    <div class="flex items-center justify-between mb-4">
+      <h3 class="text-[10px] font-black text-slate-500 uppercase tracking-widest">Digital Briefcase Readiness</h3>
+      {% if packet_readiness.is_ready %}
+      <span class="text-[11px] font-black px-3 py-1 rounded-full bg-emerald-900/30 border border-emerald-500/40 text-emerald-300">READY</span>
+      {% else %}
+      <span class="text-[11px] font-black px-3 py-1 rounded-full bg-amber-900/30 border border-amber-500/40 text-amber-300">MISSING DOCS</span>
+      {% endif %}
+    </div>
+
+    <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+      {% for doc in packet_readiness.docs %}
+      <div class="rounded-xl border px-4 py-3 {% if doc.present %}bg-emerald-900/10 border-emerald-500/30{% else %}bg-slate-800/50 border-slate-700{% endif %}">
+        <div class="text-xs font-black uppercase tracking-wider {% if doc.present %}text-emerald-300{% else %}text-slate-300{% endif %}">{{ doc.label }}</div>
+        <div class="mt-1 text-[11px] font-bold {% if doc.present %}text-emerald-400{% else %}text-slate-500{% endif %}">
+          {% if doc.present %}Uploaded{% else %}Missing{% endif %}
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+
+    <div class="mt-4 text-xs text-slate-400">
+      {{ packet_readiness.uploaded_count }}/{{ packet_readiness.required_count }} required docs uploaded.
+      {% if not packet_readiness.is_ready %}
+      Missing: {{ packet_readiness.missing_labels|join(', ') }}.
+      {% endif %}
+    </div>
+
+    <a href="/onboarding/step3" class="mt-4 inline-flex items-center gap-2 text-xs font-bold text-blue-300 hover:text-blue-200 transition">
+      <i class="fas fa-briefcase"></i>
+      Open Digital Briefcase
+    </a>
+  </div>
+</section>

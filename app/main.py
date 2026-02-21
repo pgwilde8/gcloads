@@ -4,7 +4,7 @@ from pathlib import Path
 
 from fastapi import Depends, FastAPI, File, Form, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pydantic import Field
@@ -29,7 +29,9 @@ from app.routes.public import router as public_router
 from app.logic.negotiator import handle_broker_reply
 from app.core.config import settings as core_settings
 from app.services.email import send_outbound_email, send_quick_reply_email
+from app.services.document_registry import get_active_documents
 from app.services.packet_manager import log_packet_snapshot, register_uploaded_packet_document
+from app.services.packet_readiness import packet_readiness_for_driver
 from app.services.packet_storage import ensure_driver_space, packet_driver_dir, packet_file_paths_for_driver, save_packet_file
 
 
@@ -51,6 +53,7 @@ class Settings(BaseSettings):
     scout_api_key: str = ""
     admin_enrich_password: str = ""
     session_secret_key: str = Field(default="change-this-session-secret", validation_alias="SECRET_KEY")
+    session_cookie_domain: str = ""
     packet_storage_root: str = "/srv/gcd-data/packets"
     packet_max_total_mb: int = 5
     packet_max_file_mb: int = 5
@@ -75,10 +78,14 @@ templates_dir = Path(__file__).resolve().parent / "templates"
 app = FastAPI(title=settings.app_name)
 app.mount("/static", StaticFiles(directory=str(app_root / "static")), name="static")
 templates = Jinja2Templates(directory=str(templates_dir))
+env_lower = (settings.app_env or "").strip().lower()
+session_https_only = env_lower in {"production", "prod"}
 app.add_middleware(
     SessionMiddleware,
     secret_key=settings.session_secret_key,
     same_site="lax",
+    https_only=session_https_only,
+    domain=(settings.session_cookie_domain or None),
 )
 app.add_middleware(
     CORSMiddleware,
@@ -107,6 +114,14 @@ def startup() -> None:
         connection.execute(text("ALTER TABLE public.drivers ADD COLUMN IF NOT EXISTS auto_negotiate BOOLEAN NOT NULL DEFAULT TRUE"))
         connection.execute(text("ALTER TABLE public.drivers ADD COLUMN IF NOT EXISTS review_before_send BOOLEAN NOT NULL DEFAULT FALSE"))
         connection.execute(text("ALTER TABLE public.drivers ADD COLUMN IF NOT EXISTS dispatch_handle VARCHAR(20)"))
+        connection.execute(text("ALTER TABLE public.drivers ADD COLUMN IF NOT EXISTS dot_number VARCHAR(20)"))
+        connection.execute(text("ALTER TABLE public.drivers ADD COLUMN IF NOT EXISTS onboarding_status VARCHAR(30)"))
+        connection.execute(text("ALTER TABLE public.drivers ADD COLUMN IF NOT EXISTS factor_type VARCHAR(30)"))
+        connection.execute(text("ALTER TABLE public.drivers ADD COLUMN IF NOT EXISTS factor_packet_email VARCHAR(255)"))
+        connection.execute(text("ALTER TABLE public.drivers ADD COLUMN IF NOT EXISTS email_verified_at TIMESTAMPTZ"))
+        connection.execute(text("UPDATE public.drivers SET onboarding_status = 'active' WHERE onboarding_status IS NULL"))
+        connection.execute(text("UPDATE public.drivers SET factor_type = 'existing' WHERE onboarding_status = 'active' AND factor_type IS NULL"))
+        connection.execute(text("UPDATE public.drivers SET email_verified_at = COALESCE(email_verified_at, created_at) WHERE email IS NOT NULL"))
         connection.execute(
             text(
                 """
@@ -247,6 +262,33 @@ def startup() -> None:
                 """
             )
         )
+        connection.execute(
+            text(
+                """
+                CREATE TABLE IF NOT EXISTS public.magic_link_tokens (
+                    id SERIAL PRIMARY KEY,
+                    email VARCHAR(255) NOT NULL,
+                    token_hash VARCHAR(64) NOT NULL,
+                    expires_at TIMESTAMPTZ NOT NULL,
+                    used_at TIMESTAMPTZ,
+                    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+                )
+                """
+            )
+        )
+        connection.execute(
+            text(
+                """
+                CREATE TABLE IF NOT EXISTS public.century_referrals (
+                    id SERIAL PRIMARY KEY,
+                    driver_id INTEGER REFERENCES public.drivers(id) ON DELETE SET NULL,
+                    status VARCHAR(30) NOT NULL DEFAULT 'SUBMITTED',
+                    payload JSONB NOT NULL,
+                    submitted_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+                )
+                """
+            )
+        )
         connection.execute(text("CREATE INDEX IF NOT EXISTS idx_loads_mc_number ON public.loads (mc_number)"))
         connection.execute(text("CREATE INDEX IF NOT EXISTS idx_loads_source_platform ON public.loads (source_platform)"))
         connection.execute(text("CREATE INDEX IF NOT EXISTS idx_messages_is_read ON public.messages (is_read)"))
@@ -264,6 +306,9 @@ def startup() -> None:
         connection.execute(text("CREATE INDEX IF NOT EXISTS idx_referral_earnings_referrer ON public.referral_earnings (referrer_id)"))
         connection.execute(text("CREATE INDEX IF NOT EXISTS idx_referral_earnings_negotiation ON public.referral_earnings (negotiation_id)"))
         connection.execute(text("CREATE INDEX IF NOT EXISTS idx_drivers_dispatch_handle ON public.drivers (dispatch_handle)"))
+        connection.execute(text("CREATE INDEX IF NOT EXISTS idx_magic_link_tokens_email ON public.magic_link_tokens (email, created_at DESC)"))
+        connection.execute(text("CREATE INDEX IF NOT EXISTS idx_magic_link_tokens_hash ON public.magic_link_tokens (token_hash)"))
+        connection.execute(text("CREATE INDEX IF NOT EXISTS idx_century_referrals_driver ON public.century_referrals (driver_id, submitted_at DESC)"))
 
     logger.info("Startup watermark mode: %s", "ON" if core_settings.WATERMARK_ENABLED else "OFF")
     Base.metadata.create_all(bind=engine)
@@ -276,7 +321,7 @@ async def home(request: Request):
 
 @app.get("/register")
 async def register_page(request: Request):
-    return templates.TemplateResponse("public/register.html", {"request": request})
+    return RedirectResponse(url="/start", status_code=302)
 
 
 def _admin_authorized(password: str | None) -> bool:
@@ -304,6 +349,42 @@ def _derive_dispatch_handle(display_name: str, normalized_email: str) -> str:
     return (email_handle or "driver")[:20]
 
 
+def _preferred_dispatch_handle(driver: Driver | None) -> str:
+    if not driver:
+        return "scout"
+
+    existing = (getattr(driver, "dispatch_handle", None) or "").strip().lower()
+    if existing:
+        return "".join(ch for ch in existing if ch.isalnum())[:20] or "scout"
+
+    return _derive_dispatch_handle(driver.display_name or "", driver.email or "")
+
+
+def _onboarding_gate_redirect(driver: Driver | None) -> str | None:
+    if not driver:
+        return "/start"
+
+    onboarding_status = (driver.onboarding_status or "needs_profile").strip().lower()
+    factor_type = (driver.factor_type or "").strip().lower()
+
+    if onboarding_status == "pending_century":
+        return "/onboarding/pending-century"
+    if onboarding_status == "needs_profile":
+        return "/register-trucker"
+    if factor_type not in {"existing", "needs_factor"}:
+        return "/onboarding/factoring"
+    if onboarding_status != "active":
+        return "/onboarding/factoring"
+    return None
+
+
+def _session_driver(request: Request, db: Session) -> Driver | None:
+    session_driver_id = request.session.get("user_id")
+    if not session_driver_id:
+        return None
+    return db.query(Driver).filter(Driver.id == session_driver_id).first()
+
+
 @app.post("/register")
 async def register_driver(
     email: str = Form(...),
@@ -311,30 +392,7 @@ async def register_driver(
     display_name: str = Form(...),
     db: Session = Depends(get_db),
 ):
-    normalized_email = email.strip().lower()
-    existing_driver = db.query(Driver).filter(Driver.email == normalized_email).first()
-    if existing_driver:
-        return RedirectResponse(
-            url=f"/drivers/dashboard?email={normalized_email}",
-            status_code=303,
-        )
-
-    new_driver = Driver(
-        email=normalized_email,
-        mc_number=mc_number.strip(),
-        display_name=display_name.strip() or "driver",
-        dispatch_handle=_derive_dispatch_handle(display_name, normalized_email),
-        balance=1.0,
-    )
-    db.add(new_driver)
-    db.commit()
-    db.refresh(new_driver)
-    ensure_driver_space(new_driver.id)
-
-    return RedirectResponse(
-        url=f"/drivers/dashboard?email={normalized_email}",
-        status_code=303,
-    )
+    return RedirectResponse(url="/start", status_code=303)
 
 
 @app.get("/admin/enrich")
@@ -513,6 +571,13 @@ async def get_active_negotiations(
                 .order_by(BrokerEmail.confidence.desc())
                 .first()
             )
+            negotiation_docs = get_active_documents(
+                db,
+                driver_id=selected_driver.id,
+                negotiation_id=negotiation.id,
+                doc_types=["BOL_RAW", "BOL_PDF", "BOL_PACKET", "NEGOTIATION_PACKET"],
+            )
+            doc_types = {str(doc.get("doc_type") or "") for doc in negotiation_docs}
             cards.append(
                 {
                     "negotiation_id": negotiation.id,
@@ -524,6 +589,9 @@ async def get_active_negotiations(
                     "equipment_type": load.equipment_type if load else "",
                     "broker_email": broker_email.email if broker_email else None,
                     "driver_email": selected_driver.email,
+                    "has_bol_raw": "BOL_RAW" in doc_types or "BOL_PDF" in doc_types,
+                    "has_bol_packet": "BOL_PACKET" in doc_types,
+                    "has_full_packet": "NEGOTIATION_PACKET" in doc_types,
                     "has_pending_review": bool(negotiation.pending_review_body),
                     "pending_review_action": negotiation.pending_review_action or "",
                     "pending_review_price": float(negotiation.pending_review_price) if negotiation.pending_review_price is not None else None,
@@ -564,14 +632,14 @@ async def update_driver_rates(
 
 @app.post("/api/negotiations/quick-reply")
 async def quick_reply_action(
+    request: Request,
     action: str = Form(...),
     negotiation_id: int = Form(...),
-    email: str = Form(...),
     db: Session = Depends(get_db),
 ):
-    selected_driver = db.query(Driver).filter(Driver.email == email.strip().lower()).first()
+    selected_driver = _session_driver(request, db)
     if not selected_driver:
-        return {"status": "error", "message": "driver_not_found"}
+        return JSONResponse(status_code=401, content={"status": "error", "message": "auth_required"})
 
     negotiation = (
         db.query(Negotiation)
@@ -603,6 +671,19 @@ async def quick_reply_action(
     load_ref = load.ref_id or str(load.id)
 
     if action == "packet":
+        readiness = packet_readiness_for_driver(db, selected_driver.id)
+        if not readiness.get("ready"):
+            return JSONResponse(
+                status_code=409,
+                content={
+                    "status": "error",
+                    "message": "packet_readiness_required",
+                    "banner": "Upload W-9, COI, and MC Authority to book loads.",
+                    "redirect_url": "/onboarding/step3",
+                    "missing_docs": readiness.get("missing_labels") or [],
+                },
+            )
+
         packet_attachments = _packet_files_for_driver(selected_driver.id)
         if not packet_attachments:
             return {"status": "error", "message": "packet_files_missing"}
@@ -688,13 +769,13 @@ async def quick_reply_action(
 
 @app.post("/api/negotiations/manual-mode")
 async def set_negotiation_manual_mode(
+    request: Request,
     negotiation_id: int = Form(...),
-    email: str = Form(...),
     db: Session = Depends(get_db),
 ):
-    selected_driver = db.query(Driver).filter(Driver.email == email.strip().lower()).first()
+    selected_driver = _session_driver(request, db)
     if not selected_driver:
-        return {"status": "error", "message": "driver_not_found"}
+        return JSONResponse(status_code=401, content={"status": "error", "message": "auth_required"})
 
     negotiation = (
         db.query(Negotiation)
@@ -723,13 +804,13 @@ async def set_negotiation_manual_mode(
 
 @app.post("/api/negotiations/approve-draft")
 async def approve_draft_send(
+    request: Request,
     negotiation_id: int = Form(...),
-    email: str = Form(...),
     db: Session = Depends(get_db),
 ):
-    selected_driver = db.query(Driver).filter(Driver.email == email.strip().lower()).first()
+    selected_driver = _session_driver(request, db)
     if not selected_driver:
-        return {"status": "error", "message": "driver_not_found"}
+        return JSONResponse(status_code=401, content={"status": "error", "message": "auth_required"})
 
     negotiation = (
         db.query(Negotiation)
@@ -852,7 +933,6 @@ async def simulate_broker_reply(
 @app.post("/drivers/upload-packet")
 async def upload_packet(
     request: Request,
-    email: str = Form(default=""),
     doc_type: str | None = Form(default=None),
     file: UploadFile | None = File(default=None),
     mc_auth: UploadFile | None = File(default=None),
@@ -860,20 +940,18 @@ async def upload_packet(
     w9: UploadFile | None = File(default=None),
     db: Session = Depends(get_db),
 ):
-    selected_driver = None
-
     session_driver_id = request.session.get("user_id")
-    if session_driver_id:
-        selected_driver = db.query(Driver).filter(Driver.id == session_driver_id).first()
+    if not session_driver_id:
+        if request.headers.get("HX-Request") == "true":
+            return RedirectResponse(url="/start", status_code=302)
+        return JSONResponse(status_code=401, content={"status": "error", "message": "auth_required"})
 
-    normalized_email = email.strip().lower() if email else ""
-    if not selected_driver and normalized_email:
-        selected_driver = db.query(Driver).filter(Driver.email == normalized_email).first()
-        if selected_driver:
-            request.session["user_id"] = selected_driver.id
-
+    selected_driver = db.query(Driver).filter(Driver.id == session_driver_id).first()
     if not selected_driver:
-        return {"status": "error", "message": "driver_not_found"}
+        request.session.pop("user_id", None)
+        if request.headers.get("HX-Request") == "true":
+            return RedirectResponse(url="/start", status_code=302)
+        return JSONResponse(status_code=401, content={"status": "error", "message": "auth_required"})
 
     upload_map = {
         "mc_auth.pdf": mc_auth,
@@ -1046,18 +1124,11 @@ async def upload_packet(
 async def review_rate_con(
     request: Request,
     negotiation_id: int,
-    email: str | None = None,
     db: Session = Depends(get_db),
 ):
-    if not email:
-        selected_driver = db.query(Driver).order_by(Driver.created_at.desc()).first()
-        if not selected_driver:
-            return RedirectResponse(url="/drivers/dashboard", status_code=302)
-        email = selected_driver.email
-
-    selected_driver = db.query(Driver).filter(Driver.email == email.strip().lower()).first()
+    selected_driver = _session_driver(request, db)
     if not selected_driver:
-        return RedirectResponse(url="/drivers/dashboard", status_code=302)
+        return RedirectResponse(url="/start", status_code=302)
 
     negotiation = (
         db.query(Negotiation)
@@ -1075,8 +1146,7 @@ async def review_rate_con(
         {
             "request": request,
             "negotiation_id": negotiation_id,
-            "email": selected_driver.email,
-            "viewer_url": f"/drivers/negotiations/{negotiation_id}/view-rate-con?email={selected_driver.email}",
+            "viewer_url": f"/drivers/negotiations/{negotiation_id}/view-rate-con",
         },
     )
 
@@ -1094,9 +1164,24 @@ async def driver_dashboard(
     if not selected_driver:
         selected_driver = db.query(Driver).order_by(Driver.created_at.desc()).first()
 
+    gate_redirect = _onboarding_gate_redirect(selected_driver)
+    if gate_redirect:
+        return RedirectResponse(url=gate_redirect, status_code=302)
+
     balance = float(selected_driver.balance) if selected_driver else 25.0
     display_name = selected_driver.display_name if selected_driver else "scout"
     mc_number = selected_driver.mc_number if selected_driver else "MC-PENDING"
+    dispatch_handle = _preferred_dispatch_handle(selected_driver)
+    packet_readiness = packet_readiness_for_driver(db, selected_driver.id) if selected_driver else {
+        "docs": [],
+        "uploaded_count": 0,
+        "required_count": 3,
+        "is_ready": False,
+        "ready": False,
+        "uploaded": [],
+        "missing": ["w9", "coi", "mc_auth"],
+        "missing_labels": ["W-9", "COI", "MC Auth"],
+    }
 
     return templates.TemplateResponse(
         "drivers/dashboard.html",
@@ -1107,11 +1192,67 @@ async def driver_dashboard(
             "is_new_driver": selected_driver is None,
             "trucker": {
                 "display_name": display_name,
+                "dispatch_handle": dispatch_handle,
                 "mc_number": mc_number,
             },
             "driver_email": selected_driver.email if selected_driver else "",
-            "assigned_handle": assigned_handle,
+            "assigned_handle": assigned_handle or dispatch_handle,
+            "packet_readiness": packet_readiness,
             "user": selected_driver,
+        },
+    )
+
+
+@app.get("/drivers/uploads")
+async def driver_uploads_page(
+    request: Request,
+    email: str | None = None,
+    db: Session = Depends(get_db),
+):
+    selected_driver: Driver | None = None
+    if email:
+        selected_driver = db.query(Driver).filter(Driver.email == email.strip().lower()).first()
+    if not selected_driver:
+        selected_driver = db.query(Driver).order_by(Driver.created_at.desc()).first()
+
+    gate_redirect = _onboarding_gate_redirect(selected_driver)
+    if gate_redirect:
+        return RedirectResponse(url=gate_redirect, status_code=302)
+
+    balance = float(selected_driver.balance) if selected_driver else 25.0
+
+    return templates.TemplateResponse(
+        "drivers/driver_uploads.html",
+        {
+            "request": request,
+            "balance": balance,
+            "won_loads": [],
+            "user": selected_driver,
+        },
+    )
+
+
+@app.get("/drivers/gcdtraining")
+async def driver_gcd_training_page(
+    request: Request,
+    email: str | None = None,
+    db: Session = Depends(get_db),
+):
+    selected_driver: Driver | None = None
+    if email:
+        selected_driver = db.query(Driver).filter(Driver.email == email.strip().lower()).first()
+    if not selected_driver:
+        selected_driver = db.query(Driver).order_by(Driver.created_at.desc()).first()
+
+    balance = float(selected_driver.balance) if selected_driver else 25.0
+
+    return templates.TemplateResponse(
+        "drivers/gcdtraining.html",
+        {
+            "request": request,
+            "balance": balance,
+            "user": selected_driver,
+            "driver_email": selected_driver.email if selected_driver else "",
         },
     )
 
@@ -1172,12 +1313,18 @@ async def mark_notifications_read(
 
 @app.get("/drivers/scout-loads")
 async def driver_scout_loads(request: Request, db: Session = Depends(get_db)):
+    email = request.query_params.get("email")
+    selected_driver = db.query(Driver).filter(Driver.email == email.strip().lower()).first() if email else db.query(Driver).order_by(Driver.created_at.desc()).first()
+    gate_redirect = _onboarding_gate_redirect(selected_driver)
+    if gate_redirect:
+        return RedirectResponse(url=gate_redirect, status_code=302)
+
     loads = db.query(Load).order_by(Load.created_at.desc()).limit(10).all()
     return templates.TemplateResponse(
         "drivers/scout_loads.html",
         {
             "request": request,
-            "balance": 25.0,
+            "balance": float(selected_driver.balance) if selected_driver else 25.0,
             "loads": loads,
         },
     )
@@ -1185,12 +1332,18 @@ async def driver_scout_loads(request: Request, db: Session = Depends(get_db)):
 
 @app.get("/drivers/load-board")
 async def driver_load_board(request: Request, db: Session = Depends(get_db)):
+    email = request.query_params.get("email")
+    selected_driver = db.query(Driver).filter(Driver.email == email.strip().lower()).first() if email else db.query(Driver).order_by(Driver.created_at.desc()).first()
+    gate_redirect = _onboarding_gate_redirect(selected_driver)
+    if gate_redirect:
+        return RedirectResponse(url=gate_redirect, status_code=302)
+
     loads = db.query(Load).order_by(Load.created_at.desc()).limit(10).all()
     return templates.TemplateResponse(
         "drivers/load_board.html",
         {
             "request": request,
-            "balance": 25.0,
+            "balance": float(selected_driver.balance) if selected_driver else 25.0,
             "loads": loads,
         },
     )

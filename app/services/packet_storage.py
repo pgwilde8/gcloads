@@ -185,6 +185,43 @@ def save_bytes_by_key(
     return result
 
 
+def read_bytes_by_key(
+    key: str,
+    *,
+    bucket: str | None = None,
+    local_root: str | Path = "/srv/gcd-data",
+) -> bytes | None:
+    if not key:
+        return None
+
+    path_candidate = Path(key)
+    if path_candidate.is_absolute():
+        try:
+            if path_candidate.exists():
+                return path_candidate.read_bytes()
+        except Exception:
+            return None
+
+    local_path = Path(local_root) / key
+    try:
+        if local_path.exists():
+            return local_path.read_bytes()
+    except Exception:
+        pass
+
+    resolved_bucket = (bucket or _storage_config().get("DO_SPACES_BUCKET") or "").strip()
+    client = _spaces_client()
+    if client is None or not resolved_bucket:
+        return None
+
+    try:
+        response = client.get_object(Bucket=resolved_bucket, Key=key)
+        body = response.get("Body")
+        return body.read() if body else None
+    except Exception:
+        return None
+
+
 def generate_presigned_get_url(bucket: str, key: str, expires_seconds: int = 3600) -> str | None:
     client = _spaces_client()
     if client is None:

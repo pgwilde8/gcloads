@@ -48,7 +48,7 @@
                     <p class="text-[9px] font-black text-slate-500 uppercase tracking-widest mb-1">Active Dispatch Identity</p>
                     <div class="flex items-center gap-2">
                         <span class="flex h-2 w-2 rounded-full bg-green-500 animate-ping shrink-0" aria-hidden="true"></span>
-                        <span class="text-white font-bold font-mono text-sm">{{ trucker.display_name }}@gcdloads.com</span>
+                        <span class="text-white font-bold font-mono text-sm">{{ trucker.dispatch_handle }}@gcdloads.com</span>
                     </div>
                     <p class="text-[10px] text-green-500 font-bold mt-1 flex items-center gap-1">
                         <span class="flex h-1.5 w-1.5 rounded-full bg-green-500 animate-pulse"></span>
@@ -59,13 +59,10 @@
             </div>
 
             <div class="w-full md:w-80 bg-black/40 border border-slate-800 p-4 rounded-2xl">
-                <div class="flex justify-between items-end mb-2">
-                    <span class="text-[9px] font-black text-slate-500 uppercase tracking-widest">Automation Fuel</span>
-                    <span class="text-xl font-black text-white neon-glow">{{ "%.1f"|format(balance) }} <span class="text-xs text-blue-500">$CANDLE</span></span>
-                </div>
-                <div class="w-full bg-slate-800 h-1.5 rounded-full overflow-hidden">
-                    <div class="bg-blue-500 h-full fuel-bar" style="width: calc(var(--fuel-pct) * 1%)"></div>
-                </div>
+                <a href="/drivers/gcdtraining?email={{ driver_email }}" class="mt-3 inline-flex items-center gap-2 text-xs font-bold text-blue-300 hover:text-blue-200 transition">
+                    <i class="fas fa-graduation-cap"></i>
+                    GCD Training Videos
+                </a>
             </div>
         </div>
     </header>
@@ -101,6 +98,66 @@
             </a>
         </section>
 
+        {% include "drivers/partials/packet_readiness_panel.html" %}
+
+
+
+        <!-- Scout Status -->
+        <section>
+            <h3 class="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-1 mb-3">Scout Status</h3>
+            <div id="scout-status-container"
+                 class="bg-slate-900 border border-slate-800 rounded-2xl p-6"
+                 hx-get="/drivers/scout-status"
+                 hx-trigger="load, every 60s"
+                 hx-swap="innerHTML">
+                <div class="animate-pulse flex flex-col space-y-3">
+                    <div class="h-4 bg-slate-800 rounded w-2/3"></div>
+                    <div class="h-8 bg-slate-800 rounded w-full"></div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Active Negotiations -->
+        <section>
+            <div class="flex items-center justify-between ml-1 mb-3">
+                <h3 class="text-[10px] font-black text-slate-500 uppercase tracking-widest">Active Negotiations</h3>
+                <button onclick="document.getElementById('rate-modal').classList.remove('hidden')"
+                        class="flex items-center gap-2 bg-slate-800 hover:bg-green-600/20 border border-slate-700 hover:border-green-500/50 text-white px-4 py-2 rounded-xl transition-all group">
+                    <i class="fas fa-filter text-green-500 group-hover:scale-110 transition-transform"></i>
+                    <span class="text-xs font-black uppercase tracking-tight">Set Floor Rates</span>
+                </button>
+            </div>
+            <div id="active-missions-container"
+                 hx-get="/drivers/dashboard-active-loads{% if driver_email %}?email={{ driver_email }}{% endif %}"
+                 hx-trigger="load, every 30s, dashboardActiveLoadsRefresh from:body"
+                 hx-swap="innerHTML"
+                 class="min-h-[320px]">
+                <div class="bg-slate-900 border border-slate-800 rounded-2xl p-12 text-center">
+                    <div class="bg-slate-800 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4 text-slate-600">
+                        <i class="fas fa-radar text-2xl"></i>
+                    </div>
+                    <h4 class="text-white font-bold">Scanning for Opportunities</h4>
+                    <p class="text-slate-500 text-xs mt-2 max-w-xs mx-auto">
+                        Your fuel is ready. Open your load board to deploy Scout and start a negotiation.
+                    </p>
+                    <a href="/drivers/load-board" class="mt-6 inline-block bg-white text-black font-bold text-[10px] px-6 py-3 rounded-full uppercase tracking-tighter hover:bg-blue-500 hover:text-white transition">
+                        Open Load Board
+                    </a>
+                </div>
+            </div>
+        </section>
+        <!-- Automation Fuel (current balance) -->
+        <section>
+            <div class="bg-slate-900 border border-slate-800 rounded-2xl p-6">
+                <div class="flex justify-between items-end mb-2">
+                    <span class="text-[9px] font-black text-slate-500 uppercase tracking-widest">Automation Fuel</span>
+                    <span class="text-xl font-black text-white neon-glow">{{ "%.1f"|format(balance) }} <span class="text-xs text-blue-500">$CANDLE</span></span>
+                </div>
+                <div class="w-full bg-slate-800 h-1.5 rounded-full overflow-hidden">
+                    <div class="bg-blue-500 h-full fuel-bar" style="width: calc(var(--fuel-pct) * 1%)"></div>
+                </div>
+            </div>
+        </section>
         <!-- Card 3: Automation Fuel Costs -->
         <section>
             <div class="bg-slate-900 border border-slate-800 rounded-2xl p-6">
@@ -128,50 +185,6 @@
             </div>
         </section>
 
-        <!-- Scout status (compact) + Active Negotiations -->
-        <section class="grid grid-cols-1 lg:grid-cols-3 gap-8">
-            <div class="lg:col-span-1">
-                <h3 class="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-1 mb-3">Scout Status</h3>
-                <div id="scout-status-container"
-                     class="bg-slate-900 border border-slate-800 rounded-2xl p-6"
-                     hx-get="/drivers/scout-status"
-                     hx-trigger="load, every 60s"
-                     hx-swap="innerHTML">
-                    <div class="animate-pulse flex flex-col space-y-3">
-                        <div class="h-4 bg-slate-800 rounded w-2/3"></div>
-                        <div class="h-8 bg-slate-800 rounded w-full"></div>
-                    </div>
-                </div>
-            </div>
-            <div class="lg:col-span-2">
-                <div class="flex items-center justify-between ml-1 mb-3">
-                    <h3 class="text-[10px] font-black text-slate-500 uppercase tracking-widest">Active Negotiations</h3>
-                    <button onclick="document.getElementById('rate-modal').classList.remove('hidden')" 
-                            class="flex items-center gap-2 bg-slate-800 hover:bg-green-600/20 border border-slate-700 hover:border-green-500/50 text-white px-4 py-2 rounded-xl transition-all group">
-                        <i class="fas fa-filter text-green-500 group-hover:scale-110 transition-transform"></i>
-                        <span class="text-xs font-black uppercase tracking-tight">Set Floor Rates</span>
-                    </button>
-                </div>
-                <div id="active-missions-container" 
-                     hx-get="/drivers/dashboard-active-loads{% if driver_email %}?email={{ driver_email }}{% endif %}" 
-                     hx-trigger="load, every 30s, dashboardActiveLoadsRefresh from:body" 
-                     hx-swap="innerHTML"
-                     class="min-h-[320px]">
-                    <div class="bg-slate-900 border border-slate-800 rounded-2xl p-12 text-center">
-                        <div class="bg-slate-800 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4 text-slate-600">
-                            <i class="fas fa-radar text-2xl"></i>
-                        </div>
-                        <h4 class="text-white font-bold">Scanning for Opportunities</h4>
-                        <p class="text-slate-500 text-xs mt-2 max-w-xs mx-auto">
-                            Your fuel is ready. Open your load board to deploy Scout and start a negotiation.
-                        </p>
-                        <a href="/drivers/load-board" class="mt-6 inline-block bg-white text-black font-bold text-[10px] px-6 py-3 rounded-full uppercase tracking-tighter hover:bg-blue-500 hover:text-white transition">
-                            Open Load Board
-                        </a>
-                    </div>
-                </div>
-            </div>
-        </section>
     </main>
 
     {% include "drivers/partials/rate_settings.html" %}
@@ -214,8 +227,8 @@
     {% endif %}
 
     <script>
-        async function runRetrySecureEmail(negotiationId, email, buttonEl) {
-            if (!email || !negotiationId) {
+        async function runRetrySecureEmail(negotiationId, buttonEl) {
+            if (!negotiationId) {
                 return;
             }
 
@@ -228,7 +241,6 @@
             try {
                 const body = new URLSearchParams({
                     negotiation_id: String(negotiationId),
-                    email,
                 });
 
                 const response = await fetch('/api/negotiations/retry-secure-email', {
@@ -279,8 +291,8 @@
             }, 2200);
         });
 
-        async function runSecureLoad(negotiationId, email, buttonEl) {
-            if (!email || !negotiationId) {
+        async function runSecureLoad(negotiationId, buttonEl) {
+            if (!negotiationId) {
                 return;
             }
 
@@ -293,7 +305,6 @@
             try {
                 const body = new URLSearchParams({
                     negotiation_id: String(negotiationId),
-                    email,
                 });
 
                 const response = await fetch('/api/negotiations/secure-load', {
@@ -325,8 +336,8 @@
             }
         }
 
-        async function runStopAiManual(negotiationId, email, buttonEl) {
-            if (!email || !negotiationId) {
+        async function runStopAiManual(negotiationId, buttonEl) {
+            if (!negotiationId) {
                 return;
             }
 
@@ -339,7 +350,6 @@
             try {
                 const body = new URLSearchParams({
                     negotiation_id: String(negotiationId),
-                    email,
                 });
 
                 const response = await fetch('/api/negotiations/manual-mode', {
@@ -371,8 +381,8 @@
             }
         }
 
-        async function runQuickReply(action, negotiationId, email, buttonEl) {
-            if (!email || !negotiationId) {
+        async function runQuickReply(action, negotiationId, buttonEl) {
+            if (!negotiationId) {
                 return;
             }
 
@@ -386,7 +396,6 @@
                 const body = new URLSearchParams({
                     action,
                     negotiation_id: String(negotiationId),
-                    email,
                 });
 
                 const response = await fetch('/api/negotiations/quick-reply', {
@@ -418,8 +427,83 @@
             }
         }
 
-        async function runApproveDraft(negotiationId, email, buttonEl) {
-            if (!email || !negotiationId) {
+        async function runComposePacket(negotiationId, buttonEl) {
+            if (!negotiationId) {
+                return;
+            }
+
+            const target = document.getElementById(`compose-status-${negotiationId}`);
+            const previousText = buttonEl ? buttonEl.textContent : '';
+            if (buttonEl) {
+                buttonEl.disabled = true;
+                buttonEl.textContent = 'Building...';
+            }
+            if (target) {
+                target.className = 'text-[11px] mt-2 text-slate-400';
+                target.textContent = 'Composing packet...';
+            }
+
+            try {
+                const response = await fetch(`/api/negotiations/${negotiationId}/compose-packet`, {
+                    method: 'POST',
+                    headers: {
+                        'Accept': 'application/json',
+                    },
+                });
+
+                const data = await response.json();
+                if (!response.ok || data.status !== 'ok') {
+                    const missing = (data.missing_docs || []).join(', ');
+                    const message = missing || data.message || 'packet_compose_failed';
+                    if (target) {
+                        target.className = 'text-[11px] mt-2 text-amber-400';
+                        target.innerHTML = `Packet not ready: ${message}. <a href="/onboarding/step3" class="text-amber-300 underline">Upload docs</a>`;
+                    }
+                    return;
+                }
+
+                if (target) {
+                    target.className = 'text-[11px] mt-2 text-emerald-400';
+                    const labelMap = {
+                        INSURANCE: 'COI',
+                        AUTHORITY: 'MC Auth',
+                        W9: 'W-9',
+                        BOL_PACKET: 'BOL Packet',
+                        RATECON: 'RateCon',
+                    };
+                    const orderMap = {
+                        'W-9': 1,
+                        COI: 2,
+                        'MC Auth': 3,
+                        'BOL Packet': 4,
+                        RateCon: 5,
+                    };
+                    const includedDocs = (data.included_docs || [])
+                        .map((doc) => labelMap[doc] || doc)
+                        .sort((a, b) => (orderMap[a] || 99) - (orderMap[b] || 99) || a.localeCompare(b))
+                        .join(', ');
+                    const packetUrl = data.bol_packet_url || data.presigned_url;
+                    if (packetUrl) {
+                        target.innerHTML = `Packet ready (${includedDocs || 'docs included'}). <a href="${packetUrl}" target="_blank" rel="noopener" class="underline text-emerald-300">Open packet</a>`;
+                    } else {
+                        target.textContent = `Packet ready (${includedDocs || 'docs included'}): ${data.bol_packet_key || data.packet_key || 'generated'}`;
+                    }
+                }
+            } catch (_) {
+                if (target) {
+                    target.className = 'text-[11px] mt-2 text-amber-400';
+                    target.textContent = 'Packet compose failed: network error';
+                }
+            } finally {
+                if (buttonEl) {
+                    buttonEl.disabled = false;
+                    buttonEl.textContent = previousText;
+                }
+            }
+        }
+
+        async function runApproveDraft(negotiationId, buttonEl) {
+            if (!negotiationId) {
                 return;
             }
 
@@ -432,7 +516,6 @@
             try {
                 const body = new URLSearchParams({
                     negotiation_id: String(negotiationId),
-                    email,
                 });
 
                 const response = await fetch('/api/negotiations/approve-draft', {

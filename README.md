@@ -52,6 +52,68 @@ Right now, the project focus is practical driver outcomes:
 ## Mission
 
 Help drivers keep more of their revenue, operate with confidence, and scale without giving away 5–10% of every load.
+
+## Magic Link + Century Flow (V1 Smoke Checklist)
+
+### Environment
+
+- `APP_BASE_URL` (default: `https://app.greencandledispatch.com`)
+- `CENTURY_REFERRAL_TO_EMAIL` (default: `techsmartmarketing8@gmail.com`)
+- `MAGIC_LINK_TOKEN_TTL_MINUTES` (default: `30`)
+
+### 1) Send magic link
+
+```bash
+curl -s -X POST "http://127.0.0.1:8369/auth/magic/send?debug=1" \
+  -H "Accept: application/json" \
+  -F "email=testdriver@example.com"
+```
+
+Expected: JSON with `status` and (in debug mode) `verify_url`.
+
+### 2) Verify magic link
+
+```bash
+curl -i "http://127.0.0.1:8369/auth/magic/verify?token=<TOKEN_FROM_VERIFY_URL>"
+```
+
+Expected: `302` redirect to `/register-trucker` for first-time profile completion.
+
+### 3) Complete profile (`/register-trucker`)
+
+Use browser session after verify (recommended), submit profile form.
+Expected: redirect to `/onboarding/factoring`.
+
+### 4) Factoring decision: YES path
+
+POST form to `/onboarding/factoring` with:
+- `has_factoring=yes`
+- `factor_packet_email=ops@factor.com`
+
+Expected: driver set to active and redirected to dashboard.
+
+### 5) Factoring decision: NO path + Century apply
+
+POST form to `/onboarding/factoring` with:
+- `has_factoring=no`
+
+Expected: redirect to `/century/apply`.
+
+Submit Century form with required fields:
+- full_name, cell_phone, mc_number, dot_number, number_of_trucks
+
+Expected:
+- row in `century_referrals` with `status=SUBMITTED`
+- email sent to `CENTURY_REFERRAL_TO_EMAIL`
+- driver redirected to `/onboarding/pending-century`
+
+### Quick DB checks
+
+```bash
+docker-compose exec -T db psql -U gcd_admin -d gcloads_db -c "SELECT id,email,onboarding_status,factor_type,factor_packet_email,email_verified_at FROM drivers ORDER BY id DESC LIMIT 10;"
+docker-compose exec -T db psql -U gcd_admin -d gcloads_db -c "SELECT id,email,used_at,expires_at,created_at FROM magic_link_tokens ORDER BY id DESC LIMIT 10;"
+docker-compose exec -T db psql -U gcd_admin -d gcloads_db -c "SELECT id,driver_id,status,submitted_at FROM century_referrals ORDER BY id DESC LIMIT 10;"
+```
 more..
 Green Candle Dispatch — Engineer Overview
 What it is

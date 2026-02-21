@@ -1,0 +1,36 @@
+{% extends "layout/base.html" %}
+
+{% block content %}
+<div class="max-w-2xl mx-auto mt-12 p-6 bg-gray-800 rounded-3xl border border-green-500/30">
+  <h2 class="text-2xl font-black text-white mb-2">Factoring Setup</h2>
+  <p class="text-gray-400 text-sm mb-6">Do you already have a factoring company?</p>
+
+  {% if error %}
+  <div class="mb-4 p-3 rounded-xl bg-red-900/30 border border-red-500/40 text-red-200 text-sm">{{ error }}</div>
+  {% endif %}
+
+  <form action="/onboarding/factoring" method="POST" class="space-y-4">
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+      <label class="cursor-pointer rounded-xl border border-gray-700 bg-gray-900 p-4 block">
+        <input type="radio" name="has_factoring" value="yes" required class="mr-2">
+        <span class="font-bold text-white">Yes</span>
+        <p class="text-xs text-gray-400 mt-1">I already have factoring</p>
+      </label>
+      <label class="cursor-pointer rounded-xl border border-gray-700 bg-gray-900 p-4 block">
+        <input type="radio" name="has_factoring" value="no" required class="mr-2">
+        <span class="font-bold text-white">No</span>
+        <p class="text-xs text-gray-400 mt-1">I need factoring help</p>
+      </label>
+    </div>
+
+    <div>
+      <label class="text-xs font-bold text-gray-400 uppercase">Factor Packet Email (required if Yes)</label>
+      <input type="email" name="factor_packet_email" value="{{ driver.factor_packet_email or '' }}" class="w-full bg-gray-900 border border-gray-700 p-3 rounded-xl text-white" placeholder="ops@yourfactor.com">
+    </div>
+
+    <button type="submit" class="w-full bg-green-600 hover:bg-green-500 text-white font-bold py-4 rounded-2xl shadow-lg transition-all active:scale-95">
+      Continue
+    </button>
+  </form>
+</div>
+{% endblock %}
