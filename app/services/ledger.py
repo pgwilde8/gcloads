@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import calendar
+from datetime import datetime, timezone
 from decimal import Decimal, ROUND_HALF_UP
 
 from sqlalchemy import text
@@ -9,6 +11,14 @@ from app.core.config import settings
 
 
 CENT = Decimal("0.01")
+
+
+def _add_months(dt: datetime, months: int) -> datetime:
+    month_index = dt.month - 1 + months
+    year = dt.year + month_index // 12
+    month = month_index % 12 + 1
+    day = min(dt.day, calendar.monthrange(year, month)[1])
+    return dt.replace(year=year, month=month, day=day)
 
 
 def _to_decimal(value: str | int | float | Decimal) -> Decimal:
@@ -78,13 +88,69 @@ def process_load_fees(
     platform_profit_gross = slices["slice_platform_profit"]
 
     referred_by_row = db.execute(
-        text("SELECT referred_by_id FROM drivers WHERE id = :driver_id"),
+        text(
+            """
+            SELECT referred_by_id, referral_started_at, referral_expires_at
+            FROM drivers
+            WHERE id = :driver_id
+            """
+        ),
         {"driver_id": driver_id},
     ).first()
     referred_by_id = int(referred_by_row.referred_by_id) if referred_by_row and referred_by_row.referred_by_id else None
 
+    referral_started_at = getattr(referred_by_row, "referral_started_at", None) if referred_by_row else None
+    referral_expires_at = getattr(referred_by_row, "referral_expires_at", None) if referred_by_row else None
+
+    now_utc = datetime.now(timezone.utc)
+
+    if referred_by_id and (referral_started_at is None or referral_expires_at is None):
+        referral_started_at = now_utc
+        referral_expires_at = _add_months(referral_started_at, 18)
+        db.execute(
+            text(
+                """
+                UPDATE drivers
+                SET referral_started_at = :referral_started_at,
+                    referral_expires_at = :referral_expires_at
+                WHERE id = :driver_id
+                """
+            ),
+            {
+                "driver_id": driver_id,
+                "referral_started_at": referral_started_at,
+                "referral_expires_at": referral_expires_at,
+            },
+        )
+
+    if not referred_by_id and (referral_started_at is not None or referral_expires_at is not None):
+        db.execute(
+            text(
+                """
+                UPDATE drivers
+                SET referral_started_at = NULL,
+                    referral_expires_at = NULL
+                WHERE id = :driver_id
+                """
+            ),
+            {"driver_id": driver_id},
+        )
+
     referral_bounty_paid = Decimal("0.00")
-    if referred_by_id:
+    referral_is_active = False
+    if referred_by_id and referral_expires_at is not None:
+        expiry_value = referral_expires_at
+        if isinstance(expiry_value, str):
+            try:
+                expiry_value = datetime.fromisoformat(expiry_value)
+            except ValueError:
+                expiry_value = None
+        if isinstance(expiry_value, datetime) and expiry_value.tzinfo is None:
+            expiry_value = expiry_value.replace(tzinfo=timezone.utc)
+        if isinstance(expiry_value, datetime):
+            referral_is_active = now_utc <= expiry_value
+
+    if referral_is_active:
         raw_bounty = _money(total_fee_collected * _to_decimal(settings.REFERRAL_BOUNTY_RATE))
         bounty_cap = _money(_to_decimal(settings.REFERRAL_BOUNTY_CAP))
         referral_bounty_paid = min(raw_bounty, bounty_cap)
@@ -135,7 +201,7 @@ def process_load_fees(
     ).first()
 
     referral_earnings_id: int | None = None
-    if referred_by_id and referral_bounty_paid > Decimal("0.00"):
+    if referral_is_active and referred_by_id and referral_bounty_paid > Decimal("0.00"):
         referral_insert = db.execute(
             text(
                 """

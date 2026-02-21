@@ -3,6 +3,7 @@ import re
 from fastapi import APIRouter, Depends, Form, Request
 from fastapi.responses import RedirectResponse
 from fastapi.templating import Jinja2Templates
+from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from app.database import get_db
@@ -61,7 +62,9 @@ def build_unique_handle(db: Session, base_handle: str) -> str:
     candidate = base_handle
     suffix = 1
 
-    while candidate in RESERVED_HANDLES or db.query(Driver.id).filter(Driver.display_name == candidate).first():
+    while candidate in RESERVED_HANDLES or db.query(Driver.id).filter(
+        or_(Driver.dispatch_handle == candidate, Driver.display_name == candidate)
+    ).first():
         suffix_value = str(suffix)
         candidate = f"{base_handle[: max(1, MAX_HANDLE_LENGTH - len(suffix_value))]}{suffix_value}"
         suffix += 1
@@ -96,7 +99,7 @@ async def onboarding_step3(
         {
             "request": request,
             "email": selected_driver.email,
-            "assigned_handle": assigned_handle or selected_driver.display_name,
+            "assigned_handle": assigned_handle or selected_driver.dispatch_handle or selected_driver.display_name,
             "uploaded_docs": uploaded_docs,
         },
     )
@@ -106,6 +109,7 @@ async def onboarding_step3(
 async def register_trucker(
     request: Request,
     display_name: str = Form(...),
+    dispatch_handle: str = Form(default=""),
     email: str = Form(...),
     authority_type: str = Form("MC"),
     mc_number: str = Form(""),
@@ -113,13 +117,15 @@ async def register_trucker(
     db: Session = Depends(get_db),
 ):
     normalized_email = email.strip().lower()
+    human_name = display_name.strip() or "Driver"
     existing_driver = db.query(Driver).filter(Driver.email == normalized_email).first()
     if existing_driver:
         ensure_driver_space(existing_driver.id)
         request.session["user_id"] = existing_driver.id
         return RedirectResponse(url="/onboarding/step3", status_code=302)
 
-    base_handle = slugify_handle(display_name, normalized_email)
+    seed_handle = dispatch_handle.strip() or human_name
+    base_handle = slugify_handle(seed_handle, normalized_email)
     validation_error = validate_handle(base_handle)
     if validation_error:
         return templates.TemplateResponse(
@@ -146,7 +152,8 @@ async def register_trucker(
         )
 
     new_driver = Driver(
-        display_name=clean_handle,
+        display_name=human_name,
+        dispatch_handle=clean_handle,
         email=normalized_email,
         mc_number=authority_value,
         balance=1.0,

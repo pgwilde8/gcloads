@@ -24,6 +24,7 @@ from app.routes.auth import router as auth_router
 from app.routes.ingest import router as ingest_router
 from app.routes.ingest import scout_router as scout_ingest_router
 from app.routes.operations import router as operations_router
+from app.routes.payments import router as payments_router
 from app.routes.public import router as public_router
 from app.logic.negotiator import handle_broker_reply
 from app.core.config import settings as core_settings
@@ -92,6 +93,7 @@ app.include_router(auth_router)
 app.include_router(ingest_router)
 app.include_router(scout_ingest_router)
 app.include_router(operations_router)
+app.include_router(payments_router)
 app.include_router(public_router)
 
 
@@ -104,7 +106,28 @@ def startup() -> None:
         connection.execute(text("ALTER TABLE public.drivers ADD COLUMN IF NOT EXISTS min_flat_rate DOUBLE PRECISION"))
         connection.execute(text("ALTER TABLE public.drivers ADD COLUMN IF NOT EXISTS auto_negotiate BOOLEAN NOT NULL DEFAULT TRUE"))
         connection.execute(text("ALTER TABLE public.drivers ADD COLUMN IF NOT EXISTS review_before_send BOOLEAN NOT NULL DEFAULT FALSE"))
+        connection.execute(text("ALTER TABLE public.drivers ADD COLUMN IF NOT EXISTS dispatch_handle VARCHAR(20)"))
+        connection.execute(
+            text(
+                """
+                UPDATE public.drivers
+                SET dispatch_handle = LEFT(
+                    COALESCE(NULLIF(REGEXP_REPLACE(LOWER(display_name), '[^a-z0-9]+', '', 'g'), ''),
+                             NULLIF(REGEXP_REPLACE(LOWER(SPLIT_PART(email, '@', 1)), '[^a-z0-9]+', '', 'g'), ''),
+                             'driver'),
+                    20
+                )
+                WHERE dispatch_handle IS NULL
+                """
+            )
+        )
         connection.execute(text("ALTER TABLE public.drivers ADD COLUMN IF NOT EXISTS referred_by_id INTEGER"))
+        connection.execute(text("ALTER TABLE public.drivers ADD COLUMN IF NOT EXISTS referral_started_at TIMESTAMPTZ"))
+        connection.execute(text("ALTER TABLE public.drivers ADD COLUMN IF NOT EXISTS referral_expires_at TIMESTAMPTZ"))
+        connection.execute(text("ALTER TABLE public.drivers ADD COLUMN IF NOT EXISTS stripe_customer_id VARCHAR(255)"))
+        connection.execute(text("ALTER TABLE public.drivers ADD COLUMN IF NOT EXISTS stripe_default_payment_method_id VARCHAR(255)"))
+        connection.execute(text("ALTER TABLE public.drivers ADD COLUMN IF NOT EXISTS stripe_payment_status VARCHAR(40) DEFAULT 'UNSET'"))
+        connection.execute(text("ALTER TABLE public.drivers ADD COLUMN IF NOT EXISTS stripe_action_required BOOLEAN NOT NULL DEFAULT FALSE"))
         connection.execute(
             text(
                 """
@@ -132,6 +155,8 @@ def startup() -> None:
         connection.execute(text("ALTER TABLE public.negotiations ADD COLUMN IF NOT EXISTS pending_review_body TEXT"))
         connection.execute(text("ALTER TABLE public.negotiations ADD COLUMN IF NOT EXISTS pending_review_action VARCHAR(40)"))
         connection.execute(text("ALTER TABLE public.negotiations ADD COLUMN IF NOT EXISTS pending_review_price NUMERIC(12,2)"))
+        connection.execute(text("ALTER TABLE public.negotiations ADD COLUMN IF NOT EXISTS factoring_status VARCHAR(20)"))
+        connection.execute(text("ALTER TABLE public.negotiations ADD COLUMN IF NOT EXISTS factored_at TIMESTAMPTZ"))
         connection.execute(text("ALTER TABLE public.messages ADD COLUMN IF NOT EXISTS is_read BOOLEAN NOT NULL DEFAULT FALSE"))
         connection.execute(
             text(
@@ -139,8 +164,10 @@ def startup() -> None:
                 CREATE TABLE IF NOT EXISTS public.driver_documents (
                     id SERIAL PRIMARY KEY,
                     driver_id INTEGER NOT NULL REFERENCES public.drivers(id) ON DELETE CASCADE,
+                    negotiation_id INTEGER REFERENCES public.negotiations(id) ON DELETE CASCADE,
                     doc_type VARCHAR(50) NOT NULL,
-                    file_key VARCHAR(255) NOT NULL,
+                    bucket VARCHAR(255),
+                    file_key VARCHAR(1024) NOT NULL,
                     uploaded_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
                     expires_at TIMESTAMPTZ,
                     sha256_hash VARCHAR(64),
@@ -149,6 +176,9 @@ def startup() -> None:
                 """
             )
         )
+        connection.execute(text("ALTER TABLE public.driver_documents ADD COLUMN IF NOT EXISTS negotiation_id INTEGER REFERENCES public.negotiations(id) ON DELETE CASCADE"))
+        connection.execute(text("ALTER TABLE public.driver_documents ADD COLUMN IF NOT EXISTS bucket VARCHAR(255)"))
+        connection.execute(text("ALTER TABLE public.driver_documents ALTER COLUMN file_key TYPE VARCHAR(1024)"))
         connection.execute(
             text(
                 """
@@ -199,17 +229,41 @@ def startup() -> None:
                 """
             )
         )
+        connection.execute(
+            text(
+                """
+                CREATE TABLE IF NOT EXISTS public.dispatch_fee_payments (
+                    id SERIAL PRIMARY KEY,
+                    negotiation_id INTEGER NOT NULL REFERENCES public.negotiations(id) ON DELETE CASCADE,
+                    driver_id INTEGER NOT NULL REFERENCES public.drivers(id) ON DELETE CASCADE,
+                    stripe_payment_intent_id VARCHAR(255),
+                    amount_cents INTEGER NOT NULL,
+                    currency VARCHAR(10) NOT NULL DEFAULT 'usd',
+                    status VARCHAR(40) NOT NULL DEFAULT 'PENDING',
+                    error_message TEXT,
+                    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+                )
+                """
+            )
+        )
         connection.execute(text("CREATE INDEX IF NOT EXISTS idx_loads_mc_number ON public.loads (mc_number)"))
         connection.execute(text("CREATE INDEX IF NOT EXISTS idx_loads_source_platform ON public.loads (source_platform)"))
         connection.execute(text("CREATE INDEX IF NOT EXISTS idx_messages_is_read ON public.messages (is_read)"))
         connection.execute(text("CREATE INDEX IF NOT EXISTS idx_drivers_referred_by_id ON public.drivers (referred_by_id)"))
+        connection.execute(text("CREATE INDEX IF NOT EXISTS idx_drivers_referral_expires_at ON public.drivers (referral_expires_at)"))
+        connection.execute(text("CREATE INDEX IF NOT EXISTS idx_drivers_stripe_customer_id ON public.drivers (stripe_customer_id)"))
         connection.execute(text("CREATE INDEX IF NOT EXISTS idx_driver_documents_driver_active ON public.driver_documents (driver_id, is_active)"))
         connection.execute(text("CREATE INDEX IF NOT EXISTS idx_driver_documents_driver_type_active ON public.driver_documents (driver_id, doc_type, is_active)"))
+        connection.execute(text("CREATE INDEX IF NOT EXISTS idx_driver_documents_driver_neg_type_active ON public.driver_documents (driver_id, negotiation_id, doc_type, is_active)"))
         connection.execute(text("CREATE INDEX IF NOT EXISTS idx_packet_negotiation ON public.packet_snapshots (negotiation_id)"))
         connection.execute(text("CREATE INDEX IF NOT EXISTS idx_packet_snapshots_driver_sent_at ON public.packet_snapshots (driver_id, sent_at DESC)"))
         connection.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS uq_fee_ledger_negotiation ON public.fee_ledger (negotiation_id) WHERE negotiation_id IS NOT NULL"))
+        connection.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS uq_dispatch_fee_payments_negotiation ON public.dispatch_fee_payments (negotiation_id)"))
+        connection.execute(text("CREATE INDEX IF NOT EXISTS idx_dispatch_fee_payments_intent ON public.dispatch_fee_payments (stripe_payment_intent_id)"))
         connection.execute(text("CREATE INDEX IF NOT EXISTS idx_referral_earnings_referrer ON public.referral_earnings (referrer_id)"))
         connection.execute(text("CREATE INDEX IF NOT EXISTS idx_referral_earnings_negotiation ON public.referral_earnings (negotiation_id)"))
+        connection.execute(text("CREATE INDEX IF NOT EXISTS idx_drivers_dispatch_handle ON public.drivers (dispatch_handle)"))
 
     logger.info("Startup watermark mode: %s", "ON" if core_settings.WATERMARK_ENABLED else "OFF")
     Base.metadata.create_all(bind=engine)
@@ -239,6 +293,17 @@ def _packet_files_for_driver(driver_id: int) -> list[Path]:
     return packet_file_paths_for_driver(driver_id, settings.packet_storage_root)
 
 
+def _derive_dispatch_handle(display_name: str, normalized_email: str) -> str:
+    base = (display_name or "").strip().lower()
+    handle = "".join(ch for ch in base if ch.isalnum())
+    if handle:
+        return handle[:20]
+
+    email_local = (normalized_email.split("@", 1)[0] if normalized_email else "").strip().lower()
+    email_handle = "".join(ch for ch in email_local if ch.isalnum())
+    return (email_handle or "driver")[:20]
+
+
 @app.post("/register")
 async def register_driver(
     email: str = Form(...),
@@ -258,6 +323,7 @@ async def register_driver(
         email=normalized_email,
         mc_number=mc_number.strip(),
         display_name=display_name.strip() or "driver",
+        dispatch_handle=_derive_dispatch_handle(display_name, normalized_email),
         balance=1.0,
     )
     db.add(new_driver)
@@ -584,7 +650,7 @@ async def quick_reply_action(
     sent = send_quick_reply_email(
         broker_email=broker_email_record.email,
         load_ref=load_ref,
-        driver_handle=selected_driver.display_name,
+        driver_handle=selected_driver.dispatch_handle or selected_driver.display_name,
         subject=subject,
         body=body,
         attachment_paths=packet_attachments if action == "packet" else None,
@@ -698,7 +764,7 @@ async def approve_draft_send(
         subject=negotiation.pending_review_subject,
         body=negotiation.pending_review_body,
         load_ref=load_ref,
-        driver_handle=selected_driver.display_name,
+        driver_handle=selected_driver.dispatch_handle or selected_driver.display_name,
         load_source=load.source_platform,
         negotiation_id=negotiation.id,
     )

@@ -1,10 +1,14 @@
 import json
 import hashlib
 import logging
+import os
 from pathlib import Path
 
 from sqlalchemy import text
 from sqlalchemy.orm import Session
+
+from app.services.document_registry import upsert_driver_document
+from app.services.storage_keys import driver_packet_key
 
 
 logger = logging.getLogger(__name__)
@@ -30,7 +34,7 @@ def _sha256_hex(file_bytes: bytes) -> str:
 
 def _file_key_for_storage(driver_id: int, filename: str, storage_root: str, spaces_saved: bool) -> str:
     if spaces_saved:
-        return f"drivers/{driver_id}/packet/{filename}"
+        return driver_packet_key(driver_id, filename)
     return str((Path(storage_root) / f"driver_{driver_id}" / filename).resolve())
 
 
@@ -50,62 +54,16 @@ def register_uploaded_packet_document(
     file_key = _file_key_for_storage(driver_id, filename, storage_root, spaces_saved)
     sha256_hash = _sha256_hex(file_bytes)
 
-    existing = db.execute(
-        text(
-            """
-            SELECT id
-            FROM driver_documents
-            WHERE driver_id = :driver_id
-              AND doc_type = :doc_type
-              AND is_active = TRUE
-              AND file_key = :file_key
-              AND COALESCE(sha256_hash, '') = :sha256_hash
-            ORDER BY id DESC
-            LIMIT 1
-            """
-        ),
-        {
-            "driver_id": driver_id,
-            "doc_type": doc_type,
-            "file_key": file_key,
-            "sha256_hash": sha256_hash,
-        },
-    ).first()
-    if existing:
-        return int(existing.id)
-
-    db.execute(
-        text(
-            """
-            UPDATE driver_documents
-            SET is_active = FALSE
-            WHERE driver_id = :driver_id
-              AND doc_type = :doc_type
-              AND is_active = TRUE
-            """
-        ),
-        {
-            "driver_id": driver_id,
-            "doc_type": doc_type,
-        },
+    bucket = os.getenv("DO_SPACES_BUCKET", "").strip() if spaces_saved else None
+    return upsert_driver_document(
+        db,
+        driver_id=driver_id,
+        doc_type=doc_type,
+        file_key=file_key,
+        sha256_hash=sha256_hash,
+        negotiation_id=None,
+        bucket=bucket or None,
     )
-
-    inserted = db.execute(
-        text(
-            """
-            INSERT INTO driver_documents (driver_id, doc_type, file_key, sha256_hash, is_active)
-            VALUES (:driver_id, :doc_type, :file_key, :sha256_hash, TRUE)
-            RETURNING id
-            """
-        ),
-        {
-            "driver_id": driver_id,
-            "doc_type": doc_type,
-            "file_key": file_key,
-            "sha256_hash": sha256_hash,
-        },
-    ).first()
-    return int(inserted.id) if inserted else None
 
 
 def _read_active_docs(db: Session, driver_id: int) -> list[dict]:

@@ -56,6 +56,21 @@ def _append_subject_token(subject: str, negotiation_id: int | None) -> str:
     return f"{(subject or '').rstrip()} {token}".strip()
 
 
+def _build_sender_token(
+    *,
+    email_domain: str,
+    driver_handle: str,
+    load_ref: str | None = None,
+    negotiation_id: int | None = None,
+) -> str:
+    if negotiation_id:
+        return f"dispatch+{negotiation_id}@{email_domain}"
+
+    clean_handle = _normalize_sender_handle(driver_handle)
+    safe_load_ref = (load_ref or "").strip()
+    return f"{clean_handle}+{safe_load_ref}@{email_domain}"
+
+
 def _add_pdf_footer_watermark(file_bytes: bytes, footer_text: str) -> bytes:
     if not footer_text:
         return file_bytes
@@ -148,17 +163,19 @@ def send_quick_reply_email(
     if not all([smtp_host, smtp_user, smtp_password, broker_email, driver_handle, load_ref]):
         return False
 
-    clean_handle = _normalize_sender_handle(driver_handle)
-    from_token = f"{clean_handle}+{load_ref}@{email_domain}"
+    from_token = _build_sender_token(
+        email_domain=email_domain,
+        driver_handle=driver_handle,
+        load_ref=load_ref,
+        negotiation_id=negotiation_id,
+    )
     tagged_broker_email = add_load_board_tag(broker_email, load_source)
 
     message = EmailMessage()
     message["Subject"] = _append_subject_token(subject, negotiation_id)
     message["From"] = from_token
     message["To"] = tagged_broker_email
-    message["Reply-To"] = (
-        f"dispatch+{negotiation_id}@{email_domain}" if negotiation_id else from_token
-    )
+    message["Reply-To"] = from_token
     if negotiation_id:
         message["X-GCD-Negotiation-ID"] = str(negotiation_id)
     message["X-GCD-Load-Ref"] = str(load_ref)

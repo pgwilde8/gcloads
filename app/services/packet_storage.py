@@ -6,6 +6,8 @@ import boto3
 from botocore.client import Config
 from dotenv import dotenv_values
 
+from app.services.storage_keys import driver_packet_key, driver_packet_prefix, driver_space_marker_key
+
 
 _REQUIRED_PACKET_FILES = ("mc_auth.pdf", "coi.pdf", "w9.pdf")
 
@@ -44,14 +46,6 @@ def packet_file_paths_for_driver(driver_id: int, storage_root: str | Path | None
     return [path for path in files if path.exists()]
 
 
-def _spaces_packet_key(driver_id: int, filename: str) -> str:
-    return f"drivers/{driver_id}/packet/{filename}"
-
-
-def _spaces_driver_marker_key(driver_id: int) -> str:
-    return f"drivers/{driver_id}/.init"
-
-
 def _spaces_client():
     config = _storage_config()
     required = [
@@ -82,7 +76,7 @@ def ensure_driver_space(driver_id: int) -> bool:
     try:
         client.put_object(
             Bucket=_storage_config()["DO_SPACES_BUCKET"],
-            Key=_spaces_driver_marker_key(driver_id),
+            Key=driver_space_marker_key(driver_id),
             Body=b"",
             ContentType="application/octet-stream",
         )
@@ -115,7 +109,7 @@ def save_packet_file(
         try:
             client.put_object(
                 Bucket=_storage_config()["DO_SPACES_BUCKET"],
-                Key=_spaces_packet_key(driver_id, filename),
+                Key=driver_packet_key(driver_id, filename),
                 Body=file_bytes,
                 ContentType=content_type,
             )
@@ -134,7 +128,7 @@ def list_uploaded_packet_docs(driver_id: int, storage_root: str | Path | None = 
         try:
             response = client.list_objects_v2(
                 Bucket=_storage_config()["DO_SPACES_BUCKET"],
-                Prefix=f"drivers/{driver_id}/packet/",
+                Prefix=driver_packet_prefix(driver_id),
             )
             for item in response.get("Contents", []):
                 key = item.get("Key") or ""
@@ -150,3 +144,56 @@ def list_uploaded_packet_docs(driver_id: int, storage_root: str | Path | None = 
             found.add(filename)
 
     return {filename.replace(".pdf", "") for filename in found}
+
+
+def save_bytes_by_key(
+    key: str,
+    file_bytes: bytes,
+    *,
+    content_type: str = "application/octet-stream",
+    local_root: str | Path = "/srv/gcd-data",
+) -> dict[str, str | bool | None]:
+    result: dict[str, str | bool | None] = {
+        "local_saved": False,
+        "spaces_saved": False,
+        "local_path": None,
+        "bucket": _storage_config().get("DO_SPACES_BUCKET") or None,
+    }
+
+    local_path = Path(local_root) / key
+    try:
+        local_path.parent.mkdir(parents=True, exist_ok=True)
+        local_path.write_bytes(file_bytes)
+        result["local_saved"] = True
+        result["local_path"] = str(local_path)
+    except Exception:
+        pass
+
+    client = _spaces_client()
+    if client is not None:
+        try:
+            client.put_object(
+                Bucket=_storage_config()["DO_SPACES_BUCKET"],
+                Key=key,
+                Body=file_bytes,
+                ContentType=content_type,
+            )
+            result["spaces_saved"] = True
+        except Exception:
+            pass
+
+    return result
+
+
+def generate_presigned_get_url(bucket: str, key: str, expires_seconds: int = 3600) -> str | None:
+    client = _spaces_client()
+    if client is None:
+        return None
+    try:
+        return client.generate_presigned_url(
+            "get_object",
+            Params={"Bucket": bucket, "Key": key},
+            ExpiresIn=expires_seconds,
+        )
+    except Exception:
+        return None

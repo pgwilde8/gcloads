@@ -1,10 +1,11 @@
 import os
 import base64
 import io
+import hashlib
 from pathlib import Path
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, Form, HTTPException
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse
 from PyPDF2 import PdfReader, PdfWriter
 from reportlab.lib.utils import ImageReader
@@ -17,11 +18,31 @@ from app.models.driver import Driver
 from app.models.load import Load
 from app.models.operations import Message, Negotiation
 from app.services.email import send_quick_reply_email
+from app.services.document_registry import upsert_driver_document
+from app.services.factoring import send_negotiation_to_factoring
 from app.services.ledger import process_load_fees
+from app.services.packet_storage import save_bytes_by_key
 from app.services.packet_manager import log_packet_snapshot
+from app.services.storage_keys import bol_processed_key, bol_raw_key
 
 
 router = APIRouter(tags=["operations"])
+
+
+def _sha256_hex(file_bytes: bytes) -> str:
+    return hashlib.sha256(file_bytes).hexdigest()
+
+
+def _image_to_pdf_bytes(image_bytes: bytes) -> bytes:
+    image = ImageReader(io.BytesIO(image_bytes))
+    width, height = image.getSize()
+    output = io.BytesIO()
+    pdf = canvas.Canvas(output, pagesize=(width, height))
+    pdf.drawImage(image, 0, 0, width=width, height=height, preserveAspectRatio=True, anchor="sw")
+    pdf.showPage()
+    pdf.save()
+    output.seek(0)
+    return output.read()
 
 
 def _packet_files_for_driver(driver_id: int) -> list[Path]:
@@ -252,7 +273,7 @@ async def secure_load_action(
         sent = send_quick_reply_email(
             broker_email=broker_email_record.email,
             load_ref=load_ref,
-            driver_handle=selected_driver.display_name,
+            driver_handle=selected_driver.dispatch_handle or selected_driver.display_name,
             subject=subject,
             body=body,
             attachment_paths=packet_attachments,
@@ -314,6 +335,135 @@ async def secure_load_action(
     }
 
 
+@router.post("/api/negotiations/{negotiation_id}/upload-bol")
+async def upload_bol(
+    negotiation_id: int,
+    email: str = Form(...),
+    bol_file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+):
+    selected_driver = db.query(Driver).filter(Driver.email == email.strip().lower()).first()
+    if not selected_driver:
+        return {"status": "error", "message": "driver_not_found"}
+
+    negotiation = (
+        db.query(Negotiation)
+        .filter(
+            Negotiation.id == negotiation_id,
+            Negotiation.driver_id == selected_driver.id,
+        )
+        .first()
+    )
+    if not negotiation:
+        return {"status": "error", "message": "negotiation_not_found"}
+
+    raw_bytes = await bol_file.read()
+    if not raw_bytes:
+        return {"status": "error", "message": "empty_file"}
+
+    original_name = (bol_file.filename or "bol.bin").strip()
+    ext = Path(original_name).suffix.lower() or ".bin"
+    safe_stem = "".join(ch for ch in Path(original_name).stem if ch.isalnum() or ch in ("-", "_")) or "bol"
+    raw_name = f"{safe_stem}{ext}"
+
+    content_type = (bol_file.content_type or "application/octet-stream").lower()
+    if content_type == "application/pdf" or ext == ".pdf":
+        processed_pdf = raw_bytes
+    elif content_type.startswith("image/") or ext in {".jpg", ".jpeg", ".png", ".webp"}:
+        try:
+            processed_pdf = _image_to_pdf_bytes(raw_bytes)
+        except Exception:
+            return {"status": "error", "message": "image_to_pdf_failed"}
+    else:
+        return {"status": "error", "message": "unsupported_file_type"}
+
+    raw_key = bol_raw_key(selected_driver.id, negotiation.id, raw_name)
+    processed_key = bol_processed_key(selected_driver.id, negotiation.id)
+
+    raw_save = save_bytes_by_key(
+        raw_key,
+        raw_bytes,
+        content_type=content_type,
+    )
+    processed_save = save_bytes_by_key(
+        processed_key,
+        processed_pdf,
+        content_type="application/pdf",
+    )
+
+    if not raw_save["local_saved"] and not raw_save["spaces_saved"]:
+        return {"status": "error", "message": "raw_storage_write_failed"}
+    if not processed_save["local_saved"] and not processed_save["spaces_saved"]:
+        return {"status": "error", "message": "processed_storage_write_failed"}
+
+    raw_file_key = raw_key if raw_save["spaces_saved"] else str(raw_save["local_path"])
+    processed_file_key = processed_key if processed_save["spaces_saved"] else str(processed_save["local_path"])
+
+    raw_bucket = str(raw_save["bucket"]) if raw_save["spaces_saved"] and raw_save["bucket"] else None
+    processed_bucket = str(processed_save["bucket"]) if processed_save["spaces_saved"] and processed_save["bucket"] else None
+
+    upsert_driver_document(
+        db,
+        driver_id=selected_driver.id,
+        negotiation_id=negotiation.id,
+        doc_type="BOL_RAW",
+        bucket=raw_bucket,
+        file_key=raw_file_key,
+        sha256_hash=_sha256_hex(raw_bytes),
+    )
+    upsert_driver_document(
+        db,
+        driver_id=selected_driver.id,
+        negotiation_id=negotiation.id,
+        doc_type="BOL_PDF",
+        bucket=processed_bucket,
+        file_key=processed_file_key,
+        sha256_hash=_sha256_hex(processed_pdf),
+    )
+    db.commit()
+
+    return {
+        "status": "ok",
+        "message": "bol_uploaded",
+        "raw_key": raw_file_key,
+        "processed_key": processed_file_key,
+        "spaces_saved": bool(raw_save["spaces_saved"] and processed_save["spaces_saved"]),
+    }
+
+
+@router.post("/api/negotiations/{negotiation_id}/send-to-factoring")
+async def send_to_factoring(
+    negotiation_id: int,
+    email: str = Form(...),
+    dry_run: bool = Form(default=True),
+    db: Session = Depends(get_db),
+):
+    selected_driver = db.query(Driver).filter(Driver.email == email.strip().lower()).first()
+    if not selected_driver:
+        return {"status": "error", "message": "driver_not_found"}
+
+    result = send_negotiation_to_factoring(
+        db,
+        negotiation_id=negotiation_id,
+        driver_id=selected_driver.id,
+        dry_run=dry_run,
+    )
+    if not result.get("ok"):
+        return {"status": "error", **result}
+
+    db.add(
+        Message(
+            negotiation_id=negotiation_id,
+            sender="System",
+            body="💸 FACTORING PACKET SENT" if not dry_run else "🧪 FACTORING PACKET READY (DRY RUN)",
+            is_read=True,
+        )
+    )
+    db.commit()
+
+    return {"status": "ok", **result}
+
+
 @router.post("/api/negotiations/retry-secure-email")
 async def retry_secure_email(
     negotiation_id: int = Form(...),
@@ -373,7 +523,7 @@ async def retry_secure_email(
         sent = send_quick_reply_email(
             broker_email=broker_email_record.email,
             load_ref=load_ref,
-            driver_handle=selected_driver.display_name,
+            driver_handle=selected_driver.dispatch_handle or selected_driver.display_name,
             subject=subject,
             body=body,
             attachment_paths=packet_attachments,

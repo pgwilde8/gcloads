@@ -18,6 +18,8 @@ class Negotiation(Base):
     pending_review_body = Column(Text, nullable=True)
     pending_review_action = Column(String(40), nullable=True)
     pending_review_price = Column(Numeric(12, 2), nullable=True)
+    factoring_status = Column(String(20), nullable=True)
+    factored_at = Column(DateTime(timezone=True), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
