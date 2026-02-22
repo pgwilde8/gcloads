@@ -29,6 +29,11 @@ class Driver(Base):
 	min_flat_rate = Column(Float, nullable=True)
 	auto_negotiate = Column(Boolean, nullable=False, default=True)
 	review_before_send = Column(Boolean, nullable=False, default=False)
+	billing_state = Column(String(40), nullable=False, default="active")
+	preferred_origin_region = Column(String(100), nullable=True)
+	preferred_destination_region = Column(String(100), nullable=True)
+	scout_active = Column(Boolean, nullable=False, default=False)
+	scout_api_key = Column(String(64), unique=True, nullable=True)
 	created_at = Column(DateTime(timezone=True), server_default=func.now())
 	updated_at = Column(
 		DateTime(timezone=True),

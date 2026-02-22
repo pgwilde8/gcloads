@@ -52,6 +52,7 @@ class ScoutIngestIn(BaseModel):
 
 
 def _require_api_key(x_api_key: str | None = Header(default=None)) -> None:
+    """Legacy shared-key check used only for the bulk /api/ingest/loads endpoint."""
     scout_api_key = os.getenv("SCOUT_API_KEY", "")
     if not scout_api_key:
         raise HTTPException(
@@ -63,6 +64,23 @@ def _require_api_key(x_api_key: str | None = Header(default=None)) -> None:
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="invalid_api_key",
         )
+
+
+def _resolve_driver_by_key(
+    x_api_key: str | None = Header(default=None),
+    db: Session = Depends(get_db),
+) -> Driver:
+    """Authenticate a Scout extension request by per-driver API key.
+
+    Returns the Driver row so the ingest handler never needs to trust
+    a client-supplied driver_id field.
+    """
+    if not x_api_key:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="missing_api_key")
+    driver = db.query(Driver).filter(Driver.scout_api_key == x_api_key).first()
+    if not driver:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="invalid_api_key")
+    return driver
 
 
 @router.post("/loads")
@@ -101,7 +119,7 @@ def ingest_loads(
 async def ingest_load(
     data: ScoutIngestIn = Body(...),
     background_tasks: BackgroundTasks = None,
-    _: None = Depends(_require_api_key),
+    driver: Driver = Depends(_resolve_driver_by_key),
     db: Session = Depends(get_db),
 ) -> dict[str, Any]:
     merged_metadata = dict(data.metadata)
@@ -121,7 +139,7 @@ async def ingest_load(
     contact_mode = resolve_contact_mode(data.contact_instructions, merged_metadata)
 
     existing = db.query(Load).filter(Load.ref_id == data.load_id).first()
-    driver = db.query(Driver).filter(Driver.id == data.driver_id).first() if data.driver_id else None
+    # driver is now resolved from the API key — no longer trusted from payload
     raw_identity = driver.display_name if driver else "dispatch"
     identity = re.sub(r"[^a-z0-9]", "", (raw_identity or "").lower()) or "dispatch"
 
@@ -282,5 +300,7 @@ async def ingest_load(
 
 
 @scout_router.get("/parsing-rules")
-def get_parsing_rules(_: None = Depends(_require_api_key)) -> dict[str, Any]:
+def get_parsing_rules(
+    _driver: Driver = Depends(_resolve_driver_by_key),
+) -> dict[str, Any]:
     return load_parsing_rules()

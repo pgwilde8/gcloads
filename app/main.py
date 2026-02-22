@@ -575,14 +575,9 @@ async def admin_enrich_save(
 @app.get("/drivers/dashboard-active-loads")
 async def get_active_negotiations(
     request: Request,
-    email: str | None = None,
     db: Session = Depends(get_db),
 ):
-    selected_driver: Driver | None = None
-    if email:
-        selected_driver = db.query(Driver).filter(Driver.email == email.strip().lower()).first()
-    if not selected_driver:
-        selected_driver = db.query(Driver).order_by(Driver.created_at.desc()).first()
+    selected_driver = _session_driver(request, db)
 
     cards: list[dict[str, object]] = []
     if selected_driver:
@@ -707,18 +702,14 @@ async def get_active_negotiations(
 
 @app.post("/api/drivers/update-rates")
 async def update_driver_rates(
+    request: Request,
     min_cpm: float = Form(...),
     min_flat: float = Form(...),
     auto_negotiate: str | None = Form(default=None),
     review_before_send: str | None = Form(default=None),
-    email: str | None = Form(default=None),
     db: Session = Depends(get_db),
 ):
-    selected_driver: Driver | None = None
-    if email:
-        selected_driver = db.query(Driver).filter(Driver.email == email.strip().lower()).first()
-    if not selected_driver:
-        selected_driver = db.query(Driver).order_by(Driver.created_at.desc()).first()
+    selected_driver = _session_driver(request, db)
     if not selected_driver:
         return HTMLResponse(content="", status_code=404)
 
@@ -1360,14 +1351,10 @@ async def driver_gcd_training_page(
 
 @app.get("/api/notifications/unread-count")
 async def get_unread_count(
-    email: str | None = None,
+    request: Request,
     db: Session = Depends(get_db),
 ):
-    selected_driver: Driver | None = None
-    if email:
-        selected_driver = db.query(Driver).filter(Driver.email == email.strip().lower()).first()
-    if not selected_driver:
-        selected_driver = db.query(Driver).order_by(Driver.created_at.desc()).first()
+    selected_driver = _session_driver(request, db)
     if not selected_driver:
         return {"unread_count": 0}
 
@@ -1414,27 +1401,52 @@ async def mark_notifications_read(
 
 @app.get("/drivers/scout-loads")
 async def driver_scout_loads(request: Request, db: Session = Depends(get_db)):
-    email = request.query_params.get("email")
-    selected_driver = db.query(Driver).filter(Driver.email == email.strip().lower()).first() if email else db.query(Driver).order_by(Driver.created_at.desc()).first()
+    from sqlalchemy import text as _text
+    selected_driver = _session_driver(request, db)
     gate_redirect = _onboarding_gate_redirect(selected_driver)
     if gate_redirect:
         return RedirectResponse(url=gate_redirect, status_code=302)
 
-    loads = db.query(Load).order_by(Load.created_at.desc()).limit(10).all()
+    # Build a filtered query based on driver's saved profile
+    filters = ["1=1"]
+    params: dict = {}
+
+    if selected_driver:
+        if selected_driver.preferred_origin_region:
+            filters.append("lower(origin) LIKE lower(:origin_filter)")
+            params["origin_filter"] = f"%{selected_driver.preferred_origin_region.split(',')[0].strip()}%"
+        if selected_driver.preferred_destination_region:
+            filters.append("lower(destination) LIKE lower(:dest_filter)")
+            params["dest_filter"] = f"%{selected_driver.preferred_destination_region.split(',')[0].strip()}%"
+
+    where = " AND ".join(filters)
+    loads = db.execute(
+        _text(f"SELECT * FROM public.loads WHERE {where} ORDER BY created_at DESC LIMIT 25"),
+        params,
+    ).mappings().all()
+
+    profile_complete = bool(
+        selected_driver and (
+            selected_driver.preferred_origin_region
+            or selected_driver.preferred_destination_region
+        )
+    )
+
     return templates.TemplateResponse(
         "drivers/scout_loads.html",
         {
             "request": request,
             "balance": float(selected_driver.balance) if selected_driver else 25.0,
             "loads": loads,
+            "driver": selected_driver,
+            "profile_complete": profile_complete,
         },
     )
 
 
 @app.get("/drivers/load-board")
 async def driver_load_board(request: Request, db: Session = Depends(get_db)):
-    email = request.query_params.get("email")
-    selected_driver = db.query(Driver).filter(Driver.email == email.strip().lower()).first() if email else db.query(Driver).order_by(Driver.created_at.desc()).first()
+    selected_driver = _session_driver(request, db)
     gate_redirect = _onboarding_gate_redirect(selected_driver)
     if gate_redirect:
         return RedirectResponse(url=gate_redirect, status_code=302)
@@ -1451,11 +1463,100 @@ async def driver_load_board(request: Request, db: Session = Depends(get_db)):
 
 
 @app.get("/drivers/scout-status")
-async def get_scout_status(request: Request):
+async def get_scout_status(request: Request, db: Session = Depends(get_db)):
+    driver = _session_driver(request, db)
+    profile_complete = bool(
+        driver and (
+            driver.preferred_origin_region
+            or driver.preferred_destination_region
+        )
+    )
     return templates.TemplateResponse(
         "drivers/partials/scout_status_indicator.html",
-        {"request": request, "status": "active"},
+        {
+            "request": request,
+            "status": "active" if (driver and driver.scout_active) else "offline",
+            "profile_complete": profile_complete,
+            "driver": driver,
+        },
     )
+
+
+@app.get("/drivers/scout-setup")
+async def driver_scout_setup_get(request: Request, db: Session = Depends(get_db)):
+    driver = _session_driver(request, db)
+    gate_redirect = _onboarding_gate_redirect(driver)
+    if gate_redirect:
+        return RedirectResponse(url=gate_redirect, status_code=302)
+
+    return templates.TemplateResponse(
+        "drivers/scout_setup.html",
+        {
+            "request": request,
+            "driver": driver,
+            "scout_api_key": driver.scout_api_key or "",
+            "saved": False,
+        },
+    )
+
+
+@app.post("/drivers/scout-setup")
+async def driver_scout_setup_post(request: Request, db: Session = Depends(get_db)):
+    driver = _session_driver(request, db)
+    if not driver:
+        return RedirectResponse(url="/drivers/dashboard", status_code=302)
+
+    from sqlalchemy import text as _text
+    db.execute(
+        _text("""
+            UPDATE public.drivers SET
+                preferred_origin_region      = :origin,
+                preferred_destination_region = :destination,
+                scout_active                 = :scout_active,
+                auto_negotiate               = :auto_negotiate,
+                min_cpm                      = :min_cpm,
+                min_flat_rate                = :min_flat_rate,
+                updated_at                   = CURRENT_TIMESTAMP
+            WHERE id = :driver_id
+        """),
+        {
+            "origin":        (form.get("preferred_origin_region") or "").strip() or None,
+            "destination":   (form.get("preferred_destination_region") or "").strip() or None,
+            "scout_active":  form.get("scout_active") == "on",
+            "auto_negotiate": form.get("auto_negotiate") == "on",
+            "min_cpm":       float(form.get("min_cpm") or 0) or None,
+            "min_flat_rate": float(form.get("min_flat_rate") or 0) or None,
+            "driver_id":     driver.id,
+        },
+    )
+    db.commit()
+    db.refresh(driver)
+
+    return templates.TemplateResponse(
+        "drivers/scout_setup.html",
+        {
+            "request": request,
+            "driver": driver,
+            "scout_api_key": driver.scout_api_key or "",
+            "saved": True,
+        },
+    )
+
+
+@app.post("/api/drivers/regenerate-scout-key")
+async def regenerate_scout_key(request: Request, db: Session = Depends(get_db)):
+    driver = _session_driver(request, db)
+    if not driver:
+        raise HTTPException(status_code=401, detail="not_authenticated")
+    from sqlalchemy import text as _text
+    import secrets
+    new_key = secrets.token_hex(32)
+    db.execute(
+        _text("UPDATE public.drivers SET scout_api_key = :key WHERE id = :id"),
+        {"key": new_key, "id": driver.id},
+    )
+    db.commit()
+    return {"scout_api_key": new_key}
 
 
 @app.get("/drivers/partials/first-mission")

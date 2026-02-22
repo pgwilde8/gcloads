@@ -6,6 +6,45 @@ SELECT tablename FROM pg_tables WHERE schemaname='public' ORDER BY tablename;
 \dt webwise.*
 \q
 
+1️⃣ Your Two-Schema Architecture Is Actually Strong
+
+You’ve unintentionally built something very sane:
+
+webwise = Market Intelligence Layer
+
+25k+ brokers
+
+Broker validation vault
+
+Canonical MC numbers
+
+Email gold list
+
+This is reference data.
+It should be relatively static.
+It validates operations.
+
+public = Live Operational Layer
+
+drivers
+
+loads
+
+negotiations
+
+messages
+
+scout_status
+
+billing tables (now)
+
+This is transactional data.
+High write volume.
+Time-sensitive.
+Driver-scoped.
+
+That separation is enterprise-grade whether you intended it or not.
+
 # Manual verify counts
 docker-compose exec -T db psql -U gcd_admin -d gcloads_db -c "SELECT 'brokers' AS table_name, COUNT(*) AS rows FROM webwise.brokers UNION ALL SELECT 'broker_emails' AS table_name, COUNT(*) AS rows FROM webwise.broker_emails;"
 # Manual verify counts

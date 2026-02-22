@@ -41,6 +41,7 @@
     }
     </script>
     {% endif %}
+    {% if card.broker_email %}
     {% if card.has_pending_review %}
     <div class="bg-violet-900/20 border border-violet-500/50 p-4 rounded-2xl flex justify-between items-center">
       <div class="flex items-center gap-3">
@@ -181,7 +182,8 @@
     </div>
     <div id="compose-status-{{ card.negotiation_id }}" class="text-[11px] mt-2 text-slate-400"></div>
     {% endif %}
-    {% else %}
+    {% endif %}
+    {% if not card.broker_email %}
     <p class="text-[11px] text-amber-400 font-semibold">No broker email found for this negotiation.</p>
     {% endif %}
   </div>

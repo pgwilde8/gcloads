@@ -1,0 +1,294 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Scout Setup — CoDriver</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/htmx.org@1.9.10"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        body { background-color: #020617; }
+    </style>
+</head>
+<body class="text-slate-200 font-sans pb-24">
+
+    <header class="p-6 bg-slate-900 border-b border-slate-800 sticky top-0 z-50 shadow-2xl">
+        <div class="max-w-3xl mx-auto flex items-center justify-between">
+            <div class="flex items-center gap-3">
+                <div class="bg-blue-600 p-2.5 rounded-xl shadow-lg shadow-blue-500/20">
+                    <i class="fas fa-satellite-dish text-white text-lg"></i>
+                </div>
+                <div>
+                    <h1 class="text-white font-black text-base tracking-tight">Scout Setup</h1>
+                    <p class="text-slate-500 text-[10px] uppercase font-bold tracking-widest">CoDriver Load Finder</p>
+                </div>
+            </div>
+            <a href="/drivers/dashboard"
+               class="text-slate-400 hover:text-white text-sm font-bold transition flex items-center gap-2">
+                <i class="fas fa-arrow-left text-xs"></i> Dashboard
+            </a>
+        </div>
+    </header>
+
+    <main class="max-w-3xl mx-auto p-6 space-y-8">
+
+        {% if saved %}
+        <div class="bg-emerald-900/30 border border-emerald-500/40 text-emerald-200 px-5 py-4 rounded-2xl flex items-center gap-3">
+            <i class="fas fa-check-circle text-emerald-400 text-lg"></i>
+            <div>
+                <p class="font-bold text-sm">Scout profile saved.</p>
+                <p class="text-xs text-emerald-300/70 mt-0.5">
+                    {% if driver and driver.scout_active %}
+                        Scout is <strong>active</strong> — it will auto-bid on matching loads as you browse.
+                    {% else %}
+                        Scout is <strong>paused</strong> — toggle it on when you're ready to run.
+                    {% endif %}
+                </p>
+            </div>
+        </div>
+        {% endif %}
+
+        <!-- ── Step 1: Extension ─────────────────────────────────────────── -->
+        <section class="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-5">
+            <div class="flex items-center gap-3 mb-1">
+                <span class="bg-blue-600 text-white text-xs font-black w-6 h-6 rounded-full flex items-center justify-center shrink-0">1</span>
+                <h2 class="text-white font-bold text-base">Install the Scout Extension</h2>
+            </div>
+            <p class="text-slate-400 text-sm leading-relaxed">
+                Scout is a Chrome extension that adds a <strong class="text-slate-200">"SHIP TO DISPATCH"</strong> button
+                on DAT, TruckSmarter, and TruckStop. When you click it, the load is sent to CoDriver and negotiations start automatically.
+            </p>
+            <div class="bg-slate-800/60 border border-slate-700 rounded-xl p-4 space-y-3">
+                <p class="text-[11px] font-black text-slate-500 uppercase tracking-widest">Your Personal API Key</p>
+                <div class="flex items-center gap-3">
+                    <code class="flex-1 bg-slate-950 border border-slate-700 text-green-400 font-mono text-sm px-4 py-2.5 rounded-lg select-all overflow-x-auto" id="api-key-display">{{ scout_api_key or "—" }}</code>
+                    <button onclick="navigator.clipboard.writeText(document.getElementById('api-key-display').innerText); this.innerHTML='<i class=\'fas fa-check\'></i> Copied'; setTimeout(()=>this.innerHTML='<i class=\'fas fa-copy\'></i> Copy',2000);"
+                            class="bg-slate-700 hover:bg-slate-600 text-white text-xs font-bold px-4 py-2.5 rounded-lg transition flex items-center gap-2 shrink-0">
+                        <i class="fas fa-copy"></i> Copy
+                    </button>
+                </div>
+                <div class="flex items-center justify-between">
+                    <p class="text-slate-500 text-xs">Paste this into the extension's Options → API Key field. This key is unique to you.</p>
+                    <button
+                        id="regen-btn"
+                        onclick="
+                            if (!confirm('Generate a new key? Your extension will stop working until you update it.')) return;
+                            fetch('/api/drivers/regenerate-scout-key', {method:'POST'})
+                                .then(r=>r.json())
+                                .then(d=>{
+                                    document.getElementById('api-key-display').innerText = d.scout_api_key;
+                                    document.getElementById('ext-test-result').innerHTML = '<span class=\'h-2 w-2 rounded-full bg-amber-500 inline-block mr-1\'></span><span class=\'text-amber-400\'>Key changed — update extension</span>';
+                                });
+                        "
+                        class="text-slate-500 hover:text-red-400 text-xs font-bold transition flex items-center gap-1 shrink-0 ml-4">
+                        <i class="fas fa-rotate-right text-[10px]"></i> Regenerate
+                    </button>
+                </div>
+            </div>
+            <div class="flex items-center gap-3">
+                <div id="ext-test-result" class="text-xs font-bold text-slate-500">
+                    <span class="h-2 w-2 rounded-full bg-slate-600 inline-block mr-1"></span>Not tested
+                </div>
+                <button
+                    id="test-conn-btn"
+                    onclick="
+                        const key = document.getElementById('api-key-display').innerText.trim();
+                        const el = document.getElementById('ext-test-result');
+                        fetch('/api/scout/parsing-rules', {headers: {'x-api-key': key}})
+                            .then(r => {
+                                if (r.ok) {
+                                    el.innerHTML = '<span class=\'h-2 w-2 rounded-full bg-green-500 inline-block mr-1\'></span><span class=\'text-green-400\'>Connection OK</span>';
+                                } else {
+                                    el.innerHTML = '<span class=\'h-2 w-2 rounded-full bg-red-500 inline-block mr-1\'></span><span class=\'text-red-400\'>Connection failed (' + r.status + ')</span>';
+                                }
+                            })
+                            .catch(() => {
+                                el.innerHTML = '<span class=\'h-2 w-2 rounded-full bg-red-500 inline-block mr-1\'></span><span class=\'text-red-400\'>Network error</span>';
+                            });
+                    "
+                    class="bg-blue-600/20 hover:bg-blue-600/30 border border-blue-500/30 text-blue-300 text-xs font-bold px-4 py-2 rounded-lg transition">
+                    <i class="fas fa-plug mr-1"></i> Test Connection
+                </button>
+            </div>
+        </section>
+
+        <!-- ── Step 2: Filter Profile ────────────────────────────────────── -->
+        <section class="bg-slate-900 border border-slate-800 rounded-2xl p-6">
+            <div class="flex items-center gap-3 mb-5">
+                <span class="bg-blue-600 text-white text-xs font-black w-6 h-6 rounded-full flex items-center justify-center shrink-0">2</span>
+                <h2 class="text-white font-bold text-base">Your Load Filter Profile</h2>
+            </div>
+            <p class="text-slate-400 text-sm mb-6 leading-relaxed">
+                Tell Scout what loads to prioritize. When you click "SHIP TO DISPATCH" on a matching load,
+                CoDriver will auto-negotiate based on these settings.
+            </p>
+
+            <form method="POST" action="/drivers/scout-setup" class="space-y-6">
+
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div>
+                        <label class="block text-[11px] font-black text-slate-500 uppercase tracking-widest mb-2">
+                            Home / Pickup Region
+                        </label>
+                        <input type="text"
+                               name="preferred_origin_region"
+                               value="{{ driver.preferred_origin_region or '' }}"
+                               placeholder="e.g. Atlanta GA, Southeast, TX"
+                               class="w-full bg-slate-800 border border-slate-700 text-white placeholder-slate-600 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-blue-500 transition">
+                        <p class="text-slate-600 text-xs mt-1">Where you want to pick up loads from.</p>
+                    </div>
+                    <div>
+                        <label class="block text-[11px] font-black text-slate-500 uppercase tracking-widest mb-2">
+                            Preferred Destination
+                        </label>
+                        <input type="text"
+                               name="preferred_destination_region"
+                               value="{{ driver.preferred_destination_region or '' }}"
+                               placeholder="e.g. Midwest, Chicago IL, Northeast"
+                               class="w-full bg-slate-800 border border-slate-700 text-white placeholder-slate-600 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-blue-500 transition">
+                        <p class="text-slate-600 text-xs mt-1">Where you're willing to run to.</p>
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div>
+                        <label class="block text-[11px] font-black text-slate-500 uppercase tracking-widest mb-2">
+                            Min Rate (per mile)
+                        </label>
+                        <div class="relative">
+                            <span class="absolute left-4 top-1/2 -translate-y-1/2 text-slate-500 font-bold text-sm">$</span>
+                            <input type="number" step="0.01" min="0" max="20"
+                                   name="min_cpm"
+                                   value="{{ '%.2f'|format(driver.min_cpm) if driver and driver.min_cpm else '' }}"
+                                   placeholder="2.50"
+                                   class="w-full bg-slate-800 border border-slate-700 text-white placeholder-slate-600 rounded-xl pl-8 pr-4 py-3 text-sm focus:outline-none focus:border-blue-500 transition">
+                        </div>
+                        <p class="text-slate-600 text-xs mt-1">Minimum $/mile you'll accept.</p>
+                    </div>
+                    <div>
+                        <label class="block text-[11px] font-black text-slate-500 uppercase tracking-widest mb-2">
+                            Min Flat Rate
+                        </label>
+                        <div class="relative">
+                            <span class="absolute left-4 top-1/2 -translate-y-1/2 text-slate-500 font-bold text-sm">$</span>
+                            <input type="number" step="1" min="0"
+                                   name="min_flat_rate"
+                                   value="{{ driver.min_flat_rate|int if driver and driver.min_flat_rate else '' }}"
+                                   placeholder="1500"
+                                   class="w-full bg-slate-800 border border-slate-700 text-white placeholder-slate-600 rounded-xl pl-8 pr-4 py-3 text-sm focus:outline-none focus:border-blue-500 transition">
+                        </div>
+                        <p class="text-slate-600 text-xs mt-1">Minimum flat dollar amount per load.</p>
+                    </div>
+                </div>
+
+                <div class="bg-slate-800/40 border border-slate-700 rounded-xl p-4 space-y-3">
+                    <p class="text-[11px] font-black text-slate-500 uppercase tracking-widest">Automation Settings</p>
+                    <label class="flex items-center gap-3 cursor-pointer group">
+                        <div class="relative">
+                            <input type="checkbox" name="auto_negotiate" class="sr-only peer"
+                                   {% if driver and driver.auto_negotiate %}checked{% endif %}>
+                            <div class="w-10 h-5 bg-slate-700 rounded-full peer peer-checked:bg-blue-600 transition-colors"></div>
+                            <div class="absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full transition-transform peer-checked:translate-x-5"></div>
+                        </div>
+                        <div>
+                            <p class="text-white text-sm font-bold group-hover:text-blue-300 transition">Auto-negotiate</p>
+                            <p class="text-slate-500 text-xs">CoDriver emails the broker immediately when you click SHIP TO DISPATCH.</p>
+                        </div>
+                    </label>
+                    <label class="flex items-center gap-3 cursor-pointer group">
+                        <div class="relative">
+                            <input type="checkbox" name="review_before_send" class="sr-only peer"
+                                   {% if driver and driver.review_before_send %}checked{% endif %}>
+                            <div class="w-10 h-5 bg-slate-700 rounded-full peer peer-checked:bg-amber-500 transition-colors"></div>
+                            <div class="absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full transition-transform peer-checked:translate-x-5"></div>
+                        </div>
+                        <div>
+                            <p class="text-white text-sm font-bold group-hover:text-amber-300 transition">Review before send</p>
+                            <p class="text-slate-500 text-xs">Hold each outbound email for your approval before it goes out.</p>
+                        </div>
+                    </label>
+                </div>
+
+                <!-- ── Step 3: Activate ──────────────────────────────────── -->
+                <div class="bg-slate-800/40 border {% if driver and driver.scout_active %}border-green-500/40{% else %}border-slate-700{% endif %} rounded-xl p-5">
+                    <div class="flex items-center justify-between">
+                        <div>
+                            <p class="text-white font-bold text-sm">Scout Active</p>
+                            <p class="text-slate-500 text-xs mt-0.5">
+                                When active, Scout is watching for loads matching your profile.
+                                Toggle off to pause without losing your settings.
+                            </p>
+                        </div>
+                        <label class="relative cursor-pointer">
+                            <input type="checkbox" name="scout_active" class="sr-only peer"
+                                   {% if driver and driver.scout_active %}checked{% endif %}>
+                            <div class="w-14 h-7 bg-slate-700 rounded-full peer peer-checked:bg-green-500 transition-colors shadow-inner"></div>
+                            <div class="absolute top-1 left-1 w-5 h-5 bg-white rounded-full transition-transform peer-checked:translate-x-7 shadow"></div>
+                        </label>
+                    </div>
+                </div>
+
+                <button type="submit"
+                        class="w-full bg-blue-600 hover:bg-blue-500 text-white font-black text-sm uppercase tracking-wider py-4 rounded-2xl transition shadow-lg shadow-blue-500/20 flex items-center justify-center gap-2">
+                    <i class="fas fa-save"></i> Save Scout Profile
+                </button>
+
+            </form>
+        </section>
+
+        <!-- ── How it works ──────────────────────────────────────────────── -->
+        <section class="bg-slate-900/50 border border-slate-800 rounded-2xl p-6">
+            <h3 class="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-4">How Scout Works</h3>
+            <div class="space-y-3">
+                <div class="flex items-start gap-3">
+                    <div class="bg-blue-600/20 p-2 rounded-lg shrink-0 mt-0.5">
+                        <i class="fas fa-globe text-blue-400 text-xs"></i>
+                    </div>
+                    <div>
+                        <p class="text-white text-sm font-bold">Browse load boards normally</p>
+                        <p class="text-slate-500 text-xs mt-0.5">Open DAT, TruckSmarter, or TruckStop in Chrome as you always do.</p>
+                    </div>
+                </div>
+                <div class="flex items-start gap-3">
+                    <div class="bg-green-600/20 p-2 rounded-lg shrink-0 mt-0.5">
+                        <i class="fas fa-hand-pointer text-green-400 text-xs"></i>
+                    </div>
+                    <div>
+                        <p class="text-white text-sm font-bold">Click "SHIP TO DISPATCH" on any load</p>
+                        <p class="text-slate-500 text-xs mt-0.5">Scout harvests the load details and broker contact, sends it to CoDriver.</p>
+                    </div>
+                </div>
+                <div class="flex items-start gap-3">
+                    <div class="bg-purple-600/20 p-2 rounded-lg shrink-0 mt-0.5">
+                        <i class="fas fa-robot text-purple-400 text-xs"></i>
+                    </div>
+                    <div>
+                        <p class="text-white text-sm font-bold">CoDriver negotiates automatically</p>
+                        <p class="text-slate-500 text-xs mt-0.5">If auto-negotiate is on, an email goes to the broker immediately. You watch the negotiation unfold on your dashboard.</p>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+    </main>
+
+    <!-- Bottom nav matching dashboard -->
+    <nav class="fixed bottom-6 left-1/2 -translate-x-1/2 bg-slate-900/80 backdrop-blur-xl border border-slate-800 p-2 rounded-2xl shadow-2xl z-50">
+        <div class="flex items-center gap-1">
+            <a href="/drivers/dashboard"
+               class="text-slate-400 hover:text-white px-6 py-2 rounded-xl text-xs font-bold transition flex items-center gap-2">
+                <i class="fas fa-home"></i> Dashboard
+            </a>
+            <a href="/drivers/scout-loads"
+               class="text-slate-400 hover:text-white px-6 py-2 rounded-xl text-xs font-bold transition flex items-center gap-2">
+                <i class="fas fa-satellite-dish"></i> Scout Loads
+            </a>
+            <span class="bg-blue-600 text-white px-6 py-2 rounded-xl text-xs font-bold flex items-center gap-2">
+                <i class="fas fa-sliders"></i> Scout Setup
+            </span>
+        </div>
+    </nav>
+
+</body>
+</html>

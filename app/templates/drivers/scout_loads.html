@@ -1,41 +1,192 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Scout Loads</title>
-  <script src="https://cdn.tailwindcss.com"></script>
-  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Scout Loads — CoDriver</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/htmx.org@1.9.10"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        body { background-color: #020617; }
+    </style>
 </head>
-<body class="bg-slate-950 text-slate-200 min-h-screen pb-24" style="--fuel-pct: {{ (((balance|default(0)) / 50) * 100)|round(0) }}">
-  <main class="max-w-6xl mx-auto p-6 space-y-6">
-    <div class="flex items-center justify-between">
-      <h1 class="text-2xl font-black text-white">Scout Picked Loads</h1>
-      <a href="/drivers/dashboard" class="text-blue-400 hover:text-blue-300 text-sm font-bold">← Back to Dashboard</a>
-    </div>
+<body class="text-slate-200 font-sans pb-24">
 
-    <section class="bg-slate-900 border border-slate-800 rounded-2xl p-6">
-      <p class="text-slate-300 text-sm">This page is now live. Scout-collected loads will appear here as we connect the next ingestion/view layer.</p>
-    </section>
-
-    <section class="bg-slate-900 border border-slate-800 rounded-2xl p-6">
-      <h2 class="text-white font-bold mb-3">Recent Ingested Loads</h2>
-      {% if loads and loads|length > 0 %}
-        <div class="space-y-3">
-          {% for load in loads %}
-          <div class="bg-slate-800/50 border border-slate-700 p-4 rounded-xl flex justify-between items-center">
-            <div>
-              <p class="text-white font-bold">{{ load.origin }} → {{ load.destination }}</p>
-              <p class="text-slate-400 text-xs">{{ load.equipment_type }} | {{ load.price }}</p>
+    <header class="p-6 bg-slate-900 border-b border-slate-800 sticky top-0 z-50 shadow-2xl">
+        <div class="max-w-5xl mx-auto flex items-center justify-between">
+            <div class="flex items-center gap-3">
+                <div class="bg-blue-600 p-2.5 rounded-xl shadow-lg shadow-blue-500/20">
+                    <i class="fas fa-satellite-dish text-white text-lg"></i>
+                </div>
+                <div>
+                    <h1 class="text-white font-black text-base tracking-tight">Scout Loads</h1>
+                    <p class="text-slate-500 text-[10px] uppercase font-bold tracking-widest">
+                        {% if profile_complete and driver %}
+                            {{ driver.preferred_origin_region or 'Any origin' }} → {{ driver.preferred_destination_region or 'Any destination' }}
+                        {% else %}
+                            All ingested loads
+                        {% endif %}
+                    </p>
+                </div>
             </div>
-            <span class="text-blue-400 text-xs font-black">READY</span>
-          </div>
-          {% endfor %}
+            <a href="/drivers/dashboard"
+               class="text-slate-400 hover:text-white text-sm font-bold transition flex items-center gap-2">
+                <i class="fas fa-arrow-left text-xs"></i> Dashboard
+            </a>
         </div>
-      {% else %}
-        <p class="text-slate-500 text-sm">No loads yet. Open your Scout extension and ingest a few records.</p>
-      {% endif %}
-    </section>
-  </main>
+    </header>
+
+    <main class="max-w-5xl mx-auto p-6 space-y-6">
+
+        {% if not profile_complete %}
+        {# ── No profile: prompt setup ── #}
+        <div class="bg-amber-900/20 border border-amber-500/30 rounded-2xl p-6 flex items-start gap-4">
+            <div class="bg-amber-500/20 p-3 rounded-xl shrink-0">
+                <i class="fas fa-sliders text-amber-400 text-xl"></i>
+            </div>
+            <div class="flex-1">
+                <h3 class="text-white font-bold text-base">Set up your Scout profile</h3>
+                <p class="text-slate-400 text-sm mt-1 leading-relaxed">
+                    Tell Scout your lanes, equipment type, and minimum rates so it can filter loads for you.
+                    Right now you're seeing all ingested loads — set a profile to see only what matches your truck.
+                </p>
+                <a href="/drivers/scout-setup"
+                   class="inline-flex items-center gap-2 mt-4 bg-amber-500 hover:bg-amber-400 text-black font-black text-xs uppercase tracking-wider px-5 py-2.5 rounded-xl transition">
+                    <i class="fas fa-sliders"></i> Set Up Scout Profile
+                </a>
+            </div>
+        </div>
+        {% else %}
+        {# ── Profile active: show filter summary ── #}
+        <div class="bg-slate-900 border border-slate-800 rounded-2xl p-4 flex items-center justify-between gap-4">
+            <div class="flex items-center gap-3 flex-wrap text-xs">
+                {% if driver and driver.preferred_origin_region %}
+                <span class="bg-slate-800 border border-slate-700 text-slate-300 px-3 py-1.5 rounded-lg font-bold flex items-center gap-1.5">
+                    <i class="fas fa-map-marker-alt text-blue-400 text-[10px]"></i>
+                    {{ driver.preferred_origin_region }}
+                </span>
+                {% endif %}
+                {% if driver and driver.preferred_destination_region %}
+                <span class="text-slate-600 font-bold">→</span>
+                <span class="bg-slate-800 border border-slate-700 text-slate-300 px-3 py-1.5 rounded-lg font-bold flex items-center gap-1.5">
+                    <i class="fas fa-flag-checkered text-green-400 text-[10px]"></i>
+                    {{ driver.preferred_destination_region }}
+                </span>
+                {% endif %}
+                {% if driver and driver.min_cpm %}
+                <span class="bg-slate-800 border border-slate-700 text-slate-300 px-3 py-1.5 rounded-lg font-bold flex items-center gap-1.5">
+                    <i class="fas fa-dollar-sign text-green-400 text-[10px]"></i>
+                    Min ${{ '%.2f'|format(driver.min_cpm) }}/mi
+                </span>
+                {% endif %}
+                {% if driver and driver.scout_active %}
+                <span class="bg-green-500/10 border border-green-500/30 text-green-400 px-3 py-1.5 rounded-lg font-bold flex items-center gap-1.5">
+                    <span class="h-1.5 w-1.5 rounded-full bg-green-500 animate-pulse"></span>ACTIVE
+                </span>
+                {% endif %}
+            </div>
+            <a href="/drivers/scout-setup"
+               class="shrink-0 text-slate-500 hover:text-slate-300 text-xs font-bold transition flex items-center gap-1.5">
+                <i class="fas fa-sliders text-[10px]"></i> Edit
+            </a>
+        </div>
+        {% endif %}
+
+        {# ── Load list ── #}
+        <section>
+            <div class="flex items-center justify-between mb-3">
+                <h2 class="text-[10px] font-black text-slate-500 uppercase tracking-widest">
+                    {% if loads %}{{ loads|length }} Load{% if loads|length != 1 %}s{% endif %} Found{% else %}No Loads Yet{% endif %}
+                </h2>
+                <span class="text-slate-600 text-xs">Refreshes on page load</span>
+            </div>
+
+            {% if loads and loads|length > 0 %}
+            <div class="space-y-3">
+                {% for load in loads %}
+                <div class="bg-slate-900 border border-slate-800 hover:border-blue-500/30 rounded-2xl p-5 transition group">
+                    <div class="flex items-start justify-between gap-4">
+                        <div class="flex-1 min-w-0">
+                            <div class="flex items-center gap-2 flex-wrap">
+                                <p class="text-white font-black text-base">
+                                    {{ load.origin or '—' }} <span class="text-slate-600">→</span> {{ load.destination or '—' }}
+                                </p>
+                                {% if load.source_platform %}
+                                <span class="bg-slate-800 text-slate-400 text-[10px] font-black uppercase tracking-wider px-2 py-0.5 rounded-md">
+                                    {{ load.source_platform }}
+                                </span>
+                                {% endif %}
+                            </div>
+                            <div class="flex items-center gap-4 mt-2 flex-wrap">
+                                {% if load.price %}
+                                <span class="text-green-400 font-black text-sm">{{ load.price }}</span>
+                                {% endif %}
+                                {% if load.equipment_type %}
+                                <span class="text-slate-400 text-xs font-bold flex items-center gap-1">
+                                    <i class="fas fa-truck text-slate-600 text-[10px]"></i>
+                                    {{ load.equipment_type }}
+                                </span>
+                                {% endif %}
+                                {% if load.mc_number %}
+                                <span class="text-slate-600 text-xs font-mono">MC {{ load.mc_number }}</span>
+                                {% endif %}
+                                {% if load.created_at %}
+                                <span class="text-slate-700 text-xs">
+                                    {{ load.created_at.strftime('%b %d, %I:%M %p') if load.created_at else '' }}
+                                </span>
+                                {% endif %}
+                            </div>
+                        </div>
+                        <div class="shrink-0 flex flex-col items-end gap-2">
+                            <span class="text-blue-400 text-xs font-black uppercase tracking-wider bg-blue-500/10 border border-blue-500/20 px-2.5 py-1 rounded-lg">READY</span>
+                        </div>
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+
+            {% else %}
+            <div class="bg-slate-900 border border-slate-800 rounded-2xl p-12 text-center">
+                <div class="bg-slate-800 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4">
+                    <i class="fas fa-satellite-dish text-slate-600 text-2xl"></i>
+                </div>
+                <h4 class="text-white font-bold">No loads yet</h4>
+                <p class="text-slate-500 text-sm mt-2 max-w-xs mx-auto leading-relaxed">
+                    {% if profile_complete %}
+                        No loads matching your profile have been ingested yet.
+                        Open DAT, TruckSmarter, or TruckStop and click <strong class="text-slate-300">SHIP TO DISPATCH</strong> on any load.
+                    {% else %}
+                        Open your Scout extension on a load board and click <strong class="text-slate-300">SHIP TO DISPATCH</strong> to ingest your first load.
+                    {% endif %}
+                </p>
+                {% if not profile_complete %}
+                <a href="/drivers/scout-setup"
+                   class="mt-6 inline-block bg-blue-600 hover:bg-blue-500 text-white font-black text-xs uppercase tracking-wider px-6 py-3 rounded-xl transition">
+                    Set Up Scout First
+                </a>
+                {% endif %}
+            </div>
+            {% endif %}
+        </section>
+
+    </main>
+
+    <nav class="fixed bottom-6 left-1/2 -translate-x-1/2 bg-slate-900/80 backdrop-blur-xl border border-slate-800 p-2 rounded-2xl shadow-2xl z-50">
+        <div class="flex items-center gap-1">
+            <a href="/drivers/dashboard"
+               class="text-slate-400 hover:text-white px-6 py-2 rounded-xl text-xs font-bold transition flex items-center gap-2">
+                <i class="fas fa-home"></i> Dashboard
+            </a>
+            <span class="bg-blue-600 text-white px-6 py-2 rounded-xl text-xs font-bold flex items-center gap-2">
+                <i class="fas fa-satellite-dish"></i> Scout Loads
+            </span>
+            <a href="/drivers/scout-setup"
+               class="text-slate-400 hover:text-white px-6 py-2 rounded-xl text-xs font-bold transition flex items-center gap-2">
+                <i class="fas fa-sliders"></i> Scout Setup
+            </span>
+        </div>
+    </nav>
+
 </body>
 </html>
