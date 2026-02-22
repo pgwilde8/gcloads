@@ -4,9 +4,11 @@ from datetime import datetime, timezone
 from pathlib import Path
 from sqlalchemy import text
 
-from fastapi import Depends, FastAPI, File, Form, Request, UploadFile
+from fastapi import BackgroundTasks, Depends, FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
+
+logger = logging.getLogger(__name__)
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pydantic import Field
@@ -1400,14 +1402,37 @@ async def mark_notifications_read(
 
 
 @app.get("/drivers/scout-loads")
-async def driver_scout_loads(request: Request, db: Session = Depends(get_db)):
+async def driver_scout_loads(request: Request, tab: str = "loads", db: Session = Depends(get_db)):
     from sqlalchemy import text as _text
     selected_driver = _session_driver(request, db)
     gate_redirect = _onboarding_gate_redirect(selected_driver)
     if gate_redirect:
         return RedirectResponse(url=gate_redirect, status_code=302)
 
-    # Build a filtered query based on driver's saved profile
+    # ── Queued negotiations (approval queue) ──────────────────────────────────
+    queued_items: list = []
+    if selected_driver:
+        queued_rows = (
+            db.query(Negotiation, Load)
+            .join(Load, Load.id == Negotiation.load_id)
+            .filter(
+                Negotiation.driver_id == selected_driver.id,
+                Negotiation.status == "Queued",
+            )
+            .order_by(Negotiation.created_at.desc())
+            .limit(50)
+            .all()
+        )
+        for neg, load in queued_rows:
+            queued_items.append({
+                "negotiation_id": neg.id,
+                "match_score": neg.match_score,
+                "match_details": neg.match_details or {},
+                "load": load,
+                "created_at": neg.created_at,
+            })
+
+    # ── Filtered loads (all ingested loads tab) ───────────────────────────────
     filters = ["1=1"]
     params: dict = {}
 
@@ -1438,8 +1463,11 @@ async def driver_scout_loads(request: Request, db: Session = Depends(get_db)):
             "request": request,
             "balance": float(selected_driver.balance) if selected_driver else 25.0,
             "loads": loads,
+            "queued_items": queued_items,
+            "queued_count": len(queued_items),
             "driver": selected_driver,
             "profile_complete": profile_complete,
+            "active_tab": tab,
         },
     )
 
@@ -1471,6 +1499,13 @@ async def get_scout_status(request: Request, db: Session = Depends(get_db)):
             or driver.preferred_destination_region
         )
     )
+    queued_count = 0
+    if driver:
+        queued_count = (
+            db.query(Negotiation)
+            .filter(Negotiation.driver_id == driver.id, Negotiation.status == "Queued")
+            .count()
+        )
     return templates.TemplateResponse(
         "drivers/partials/scout_status_indicator.html",
         {
@@ -1478,6 +1513,7 @@ async def get_scout_status(request: Request, db: Session = Depends(get_db)):
             "status": "active" if (driver and driver.scout_active) else "offline",
             "profile_complete": profile_complete,
             "driver": driver,
+            "queued_count": queued_count,
         },
     )
 
@@ -1512,21 +1548,25 @@ async def driver_scout_setup_post(request: Request, db: Session = Depends(get_db
             UPDATE public.drivers SET
                 preferred_origin_region      = :origin,
                 preferred_destination_region = :destination,
+                preferred_equipment_type     = :equipment_type,
                 scout_active                 = :scout_active,
                 auto_negotiate               = :auto_negotiate,
+                auto_send_on_perfect_match   = :auto_send_on_perfect_match,
                 min_cpm                      = :min_cpm,
                 min_flat_rate                = :min_flat_rate,
                 updated_at                   = CURRENT_TIMESTAMP
             WHERE id = :driver_id
         """),
         {
-            "origin":        (form.get("preferred_origin_region") or "").strip() or None,
-            "destination":   (form.get("preferred_destination_region") or "").strip() or None,
-            "scout_active":  form.get("scout_active") == "on",
-            "auto_negotiate": form.get("auto_negotiate") == "on",
-            "min_cpm":       float(form.get("min_cpm") or 0) or None,
-            "min_flat_rate": float(form.get("min_flat_rate") or 0) or None,
-            "driver_id":     driver.id,
+            "origin":                    (form.get("preferred_origin_region") or "").strip() or None,
+            "destination":               (form.get("preferred_destination_region") or "").strip() or None,
+            "equipment_type":            (form.get("preferred_equipment_type") or "").strip() or None,
+            "scout_active":              form.get("scout_active") == "on",
+            "auto_negotiate":            form.get("auto_negotiate") == "on",
+            "auto_send_on_perfect_match": form.get("auto_send_on_perfect_match") == "on",
+            "min_cpm":                   float(form.get("min_cpm") or 0) or None,
+            "min_flat_rate":             float(form.get("min_flat_rate") or 0) or None,
+            "driver_id":                 driver.id,
         },
     )
     db.commit()
@@ -1557,6 +1597,116 @@ async def regenerate_scout_key(request: Request, db: Session = Depends(get_db)):
     )
     db.commit()
     return {"scout_api_key": new_key}
+
+
+@app.post("/drivers/negotiations/{negotiation_id}/approve")
+async def approve_queued_negotiation(
+    negotiation_id: int,
+    request: Request,
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db),
+):
+    """Driver approves a Queued negotiation — sends the email and sets status=Sent."""
+    from app.services.broker_intelligence import triage_broker_contact
+    import re as _re
+
+    driver = _session_driver(request, db)
+    if not driver:
+        raise HTTPException(status_code=401, detail="not_authenticated")
+
+    neg = (
+        db.query(Negotiation)
+        .filter(Negotiation.id == negotiation_id, Negotiation.driver_id == driver.id)
+        .first()
+    )
+    if not neg:
+        raise HTTPException(status_code=404, detail="negotiation_not_found")
+    if neg.status != "Queued":
+        raise HTTPException(status_code=409, detail=f"negotiation_status_is_{neg.status.lower()}")
+
+    load = db.query(Load).filter(Load.id == neg.load_id).first()
+    if not load:
+        raise HTTPException(status_code=404, detail="load_not_found")
+
+    triage = triage_broker_contact(db, load.mc_number, load.id, driver.id, load.contact_instructions)
+    broker_email = triage.get("email")
+    if not broker_email:
+        raise HTTPException(status_code=422, detail="no_broker_email_available")
+
+    neg.status = "Sent"
+    db.commit()
+
+    raw_identity = driver.display_name or "dispatch"
+    identity = _re.sub(r"[^a-z0-9]", "", raw_identity.lower()) or "dispatch"
+
+    from app.services.email import send_negotiation_email as _send_neg_email
+    background_tasks.add_task(
+        _send_neg_email,
+        broker_email,
+        load.ref_id,
+        load.origin,
+        load.destination,
+        identity,
+        load.source_platform,
+    )
+
+    logger.info(
+        "scout_approve: driver=%s approved neg=%s load=%s broker_email=%s",
+        driver.id, neg.id, load.id, broker_email,
+    )
+
+    # HTMX: swap the card out; plain request: redirect
+    if request.headers.get("HX-Request"):
+        return HTMLResponse(
+            '<div class="text-green-400 text-xs font-bold py-2 px-3 bg-green-500/10 border border-green-500/20 rounded-lg">'
+            '<i class="fas fa-check mr-1"></i>Email sent to broker</div>'
+        )
+    return RedirectResponse(url="/drivers/scout-loads?tab=queued", status_code=303)
+
+
+@app.post("/drivers/negotiations/{negotiation_id}/dismiss")
+async def dismiss_queued_negotiation(
+    negotiation_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    """Driver dismisses a Queued negotiation — sets status=Dismissed (preserves audit trail)."""
+    driver = _session_driver(request, db)
+    if not driver:
+        raise HTTPException(status_code=401, detail="not_authenticated")
+
+    neg = (
+        db.query(Negotiation)
+        .filter(Negotiation.id == negotiation_id, Negotiation.driver_id == driver.id)
+        .first()
+    )
+    if not neg:
+        raise HTTPException(status_code=404, detail="negotiation_not_found")
+    if neg.status not in ("Queued", "Draft"):
+        raise HTTPException(status_code=409, detail=f"cannot_dismiss_status_{neg.status.lower()}")
+
+    neg.status = "Dismissed"
+    db.commit()
+
+    logger.info("scout_dismiss: driver=%s dismissed neg=%s", driver.id, neg.id)
+
+    if request.headers.get("HX-Request"):
+        return HTMLResponse("")  # HTMX: remove the card from DOM
+    return RedirectResponse(url="/drivers/scout-loads?tab=queued", status_code=303)
+
+
+@app.get("/api/drivers/queued-count")
+async def get_queued_count(request: Request, db: Session = Depends(get_db)):
+    """Returns the number of Queued negotiations for the current driver (for badge polling)."""
+    driver = _session_driver(request, db)
+    if not driver:
+        return {"queued": 0}
+    count = (
+        db.query(Negotiation)
+        .filter(Negotiation.driver_id == driver.id, Negotiation.status == "Queued")
+        .count()
+    )
+    return {"queued": count}
 
 
 @app.get("/drivers/partials/first-mission")

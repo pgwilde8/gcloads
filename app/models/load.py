@@ -1,4 +1,4 @@
-from sqlalchemy import Column, DateTime, Integer, String
+from sqlalchemy import Column, DateTime, ForeignKey, Integer, String
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.sql import func
 
@@ -18,5 +18,6 @@ class Load(Base):
     equipment_type = Column(String)
     contact_instructions = Column(String(20), nullable=False, default="email")
     load_metadata = Column("metadata", JSONB, nullable=True)
-    raw_data = Column(String, nullable=True) # Full scrape for debugging
+    raw_data = Column(String, nullable=True)
+    ingested_by_driver_id = Column(Integer, ForeignKey("drivers.id", ondelete="SET NULL"), nullable=True, index=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())

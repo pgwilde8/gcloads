@@ -26,9 +26,17 @@
             <span class="flex h-2 w-2 rounded-full bg-green-500 animate-pulse shrink-0"></span>
             <p class="text-[10px] font-black text-slate-500 uppercase tracking-widest">Scout Engine</p>
         </div>
-        <span class="inline-flex items-center gap-1.5 text-green-400 font-black text-xs bg-green-500/10 border border-green-500/20 px-2.5 py-1 rounded-lg">
-            <span class="h-1.5 w-1.5 rounded-full bg-green-500 animate-pulse"></span>ACTIVE
-        </span>
+        <div class="flex items-center gap-2">
+            {% if queued_count and queued_count > 0 %}
+            <a href="/drivers/scout-loads?tab=queued"
+               class="inline-flex items-center gap-1.5 text-amber-400 font-black text-xs bg-amber-500/10 border border-amber-500/20 px-2.5 py-1 rounded-lg hover:bg-amber-500/20 transition">
+                <i class="fas fa-clock text-[10px]"></i>{{ queued_count }} queued
+            </a>
+            {% endif %}
+            <span class="inline-flex items-center gap-1.5 text-green-400 font-black text-xs bg-green-500/10 border border-green-500/20 px-2.5 py-1 rounded-lg">
+                <span class="h-1.5 w-1.5 rounded-full bg-green-500 animate-pulse"></span>ACTIVE
+            </span>
+        </div>
     </div>
     <div class="grid grid-cols-2 gap-2 text-xs">
         {% if driver and driver.preferred_origin_region %}
@@ -76,6 +84,12 @@
                 {% if driver and driver.preferred_origin_region %} — {{ driver.preferred_origin_region }}{% if driver.preferred_destination_region %} → {{ driver.preferred_destination_region }}{% endif %}{% endif %}.
                 Activate to start finding loads.
             </p>
+            {% if queued_count and queued_count > 0 %}
+            <a href="/drivers/scout-loads?tab=queued"
+               class="inline-flex items-center gap-1.5 mt-2 text-amber-400 font-black text-xs bg-amber-500/10 border border-amber-500/20 px-2.5 py-1 rounded-lg hover:bg-amber-500/20 transition">
+                <i class="fas fa-clock text-[10px]"></i>{{ queued_count }} load{% if queued_count != 1 %}s{% endif %} waiting for approval
+            </a>
+            {% endif %}
         </div>
     </div>
     <a href="/drivers/scout-setup"

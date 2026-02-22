@@ -48,8 +48,7 @@
             <div class="flex-1">
                 <h3 class="text-white font-bold text-base">Set up your Scout profile</h3>
                 <p class="text-slate-400 text-sm mt-1 leading-relaxed">
-                    Tell Scout your lanes, equipment type, and minimum rates so it can filter loads for you.
-                    Right now you're seeing all ingested loads — set a profile to see only what matches your truck.
+                    Tell Scout your lanes, equipment type, and minimum rates so it can score and queue loads for you.
                 </p>
                 <a href="/drivers/scout-setup"
                    class="inline-flex items-center gap-2 mt-4 bg-amber-500 hover:bg-amber-400 text-black font-black text-xs uppercase tracking-wider px-5 py-2.5 rounded-xl transition">
@@ -58,7 +57,7 @@
             </div>
         </div>
         {% else %}
-        {# ── Profile active: show filter summary ── #}
+        {# ── Profile active: filter summary ── #}
         <div class="bg-slate-900 border border-slate-800 rounded-2xl p-4 flex items-center justify-between gap-4">
             <div class="flex items-center gap-3 flex-wrap text-xs">
                 {% if driver and driver.preferred_origin_region %}
@@ -93,7 +92,144 @@
         </div>
         {% endif %}
 
-        {# ── Load list ── #}
+        {# ── Tab bar ── #}
+        <div class="flex items-center gap-1 bg-slate-900 border border-slate-800 rounded-2xl p-1.5">
+            <a href="/drivers/scout-loads?tab=queued"
+               class="flex-1 text-center py-2.5 rounded-xl text-xs font-black uppercase tracking-wider transition flex items-center justify-center gap-2
+                      {% if active_tab == 'queued' %}bg-amber-500 text-black{% else %}text-slate-400 hover:text-white{% endif %}">
+                <i class="fas fa-clock"></i>
+                Needs Approval
+                {% if queued_count > 0 %}
+                <span class="{% if active_tab == 'queued' %}bg-black/20{% else %}bg-amber-500 text-black{% endif %} text-[10px] font-black px-1.5 py-0.5 rounded-full min-w-[18px] text-center">
+                    {{ queued_count }}
+                </span>
+                {% endif %}
+            </a>
+            <a href="/drivers/scout-loads?tab=loads"
+               class="flex-1 text-center py-2.5 rounded-xl text-xs font-black uppercase tracking-wider transition flex items-center justify-center gap-2
+                      {% if active_tab != 'queued' %}bg-blue-600 text-white{% else %}text-slate-400 hover:text-white{% endif %}">
+                <i class="fas fa-list"></i>
+                All Loads
+            </a>
+        </div>
+
+        {# ══════════════════════════════════════════════════════════════════════
+           TAB: NEEDS APPROVAL
+        ══════════════════════════════════════════════════════════════════════ #}
+        {% if active_tab == 'queued' %}
+        <section>
+            <div class="flex items-center justify-between mb-3">
+                <h2 class="text-[10px] font-black text-slate-500 uppercase tracking-widest">
+                    {% if queued_items %}{{ queued_items|length }} Load{% if queued_items|length != 1 %}s{% endif %} Awaiting Your Approval{% else %}No Queued Loads{% endif %}
+                </h2>
+            </div>
+
+            {% if queued_items %}
+            <div class="space-y-3" id="queued-list">
+                {% for item in queued_items %}
+                {% set load = item.load %}
+                {% set details = item.match_details %}
+                <div id="queued-{{ item.negotiation_id }}" class="bg-slate-900 border border-amber-500/30 rounded-2xl p-5 space-y-4">
+
+                    {# ── Load header ── #}
+                    <div class="flex items-start justify-between gap-4">
+                        <div class="flex-1 min-w-0">
+                            <p class="text-white font-black text-base">
+                                {{ load.origin or '—' }} <span class="text-slate-600">→</span> {{ load.destination or '—' }}
+                            </p>
+                            <div class="flex items-center gap-3 mt-1.5 flex-wrap text-xs">
+                                {% if load.price %}
+                                <span class="text-green-400 font-black">{{ load.price }}</span>
+                                {% endif %}
+                                {% if load.equipment_type %}
+                                <span class="text-slate-400 font-bold flex items-center gap-1">
+                                    <i class="fas fa-truck text-slate-600 text-[10px]"></i>{{ load.equipment_type }}
+                                </span>
+                                {% endif %}
+                                {% if load.mc_number %}
+                                <span class="text-slate-600 font-mono">MC {{ load.mc_number }}</span>
+                                {% endif %}
+                                {% if load.source_platform %}
+                                <span class="bg-slate-800 text-slate-400 text-[10px] font-black uppercase tracking-wider px-2 py-0.5 rounded-md">{{ load.source_platform }}</span>
+                                {% endif %}
+                            </div>
+                        </div>
+                        {# ── Match score badge ── #}
+                        <div class="shrink-0 text-center">
+                            {% set score = item.match_score or 0 %}
+                            <div class="{% if score == 4 %}bg-green-500/10 border-green-500/30 text-green-400{% elif score >= 3 %}bg-amber-500/10 border-amber-500/30 text-amber-400{% else %}bg-slate-800 border-slate-700 text-slate-400{% endif %} border rounded-xl px-3 py-2">
+                                <p class="text-lg font-black leading-none">{{ score }}<span class="text-xs font-bold opacity-60">/4</span></p>
+                                <p class="text-[9px] font-black uppercase tracking-wider mt-0.5 opacity-70">Match</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    {# ── Match criteria pills ── #}
+                    {% if details and details.matched is defined %}
+                    <div class="flex flex-wrap gap-1.5">
+                        {% for criterion in details.matched %}
+                        <span class="bg-green-500/10 border border-green-500/20 text-green-400 text-[10px] font-black uppercase tracking-wider px-2 py-1 rounded-lg flex items-center gap-1">
+                            <i class="fas fa-check text-[8px]"></i>{{ criterion }}
+                        </span>
+                        {% endfor %}
+                        {% for criterion in details.missed %}
+                        <span class="bg-red-500/10 border border-red-500/20 text-red-400 text-[10px] font-black uppercase tracking-wider px-2 py-1 rounded-lg flex items-center gap-1">
+                            <i class="fas fa-times text-[8px]"></i>{{ criterion }}
+                        </span>
+                        {% endfor %}
+                        {% if details.computed_rpm %}
+                        <span class="bg-slate-800 border border-slate-700 text-slate-400 text-[10px] font-bold px-2 py-1 rounded-lg">
+                            {{ details.computed_rpm }}
+                        </span>
+                        {% endif %}
+                    </div>
+                    {% endif %}
+
+                    {# ── Approve / Dismiss buttons ── #}
+                    <div class="flex items-center gap-3 pt-1">
+                        <form method="POST" action="/drivers/negotiations/{{ item.negotiation_id }}/approve"
+                              hx-post="/drivers/negotiations/{{ item.negotiation_id }}/approve"
+                              hx-target="#queued-{{ item.negotiation_id }}"
+                              hx-swap="outerHTML"
+                              class="flex-1">
+                            <button type="submit"
+                                    class="w-full bg-green-600 hover:bg-green-500 text-white font-black text-xs uppercase tracking-wider py-3 rounded-xl transition flex items-center justify-center gap-2">
+                                <i class="fas fa-paper-plane"></i> Approve & Send Email
+                            </button>
+                        </form>
+                        <form method="POST" action="/drivers/negotiations/{{ item.negotiation_id }}/dismiss"
+                              hx-post="/drivers/negotiations/{{ item.negotiation_id }}/dismiss"
+                              hx-target="#queued-{{ item.negotiation_id }}"
+                              hx-swap="outerHTML">
+                            <button type="submit"
+                                    class="bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-400 hover:text-white font-black text-xs uppercase tracking-wider py-3 px-4 rounded-xl transition">
+                                <i class="fas fa-times"></i>
+                            </button>
+                        </form>
+                    </div>
+
+                </div>
+                {% endfor %}
+            </div>
+
+            {% else %}
+            <div class="bg-slate-900 border border-slate-800 rounded-2xl p-12 text-center">
+                <div class="bg-slate-800 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4">
+                    <i class="fas fa-check text-slate-600 text-2xl"></i>
+                </div>
+                <h4 class="text-white font-bold">All clear</h4>
+                <p class="text-slate-500 text-sm mt-2 max-w-xs mx-auto leading-relaxed">
+                    No loads are waiting for your approval right now.
+                    When Scout finds a load that matches your profile, it will appear here.
+                </p>
+            </div>
+            {% endif %}
+        </section>
+
+        {# ══════════════════════════════════════════════════════════════════════
+           TAB: ALL LOADS
+        ══════════════════════════════════════════════════════════════════════ #}
+        {% else %}
         <section>
             <div class="flex items-center justify-between mb-3">
                 <h2 class="text-[10px] font-black text-slate-500 uppercase tracking-widest">
@@ -138,8 +274,8 @@
                                 {% endif %}
                             </div>
                         </div>
-                        <div class="shrink-0 flex flex-col items-end gap-2">
-                            <span class="text-blue-400 text-xs font-black uppercase tracking-wider bg-blue-500/10 border border-blue-500/20 px-2.5 py-1 rounded-lg">READY</span>
+                        <div class="shrink-0">
+                            <span class="text-blue-400 text-xs font-black uppercase tracking-wider bg-blue-500/10 border border-blue-500/20 px-2.5 py-1 rounded-lg">SAVED</span>
                         </div>
                     </div>
                 </div>
@@ -169,6 +305,7 @@
             </div>
             {% endif %}
         </section>
+        {% endif %}
 
     </main>
 
@@ -180,11 +317,14 @@
             </a>
             <span class="bg-blue-600 text-white px-6 py-2 rounded-xl text-xs font-bold flex items-center gap-2">
                 <i class="fas fa-satellite-dish"></i> Scout Loads
+                {% if queued_count > 0 %}
+                <span class="bg-amber-400 text-black text-[10px] font-black px-1.5 py-0.5 rounded-full min-w-[18px] text-center">{{ queued_count }}</span>
+                {% endif %}
             </span>
             <a href="/drivers/scout-setup"
                class="text-slate-400 hover:text-white px-6 py-2 rounded-xl text-xs font-bold transition flex items-center gap-2">
                 <i class="fas fa-sliders"></i> Scout Setup
-            </span>
+            </a>
         </div>
     </nav>
 

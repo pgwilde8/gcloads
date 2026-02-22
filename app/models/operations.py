@@ -1,4 +1,5 @@
-from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Integer, Numeric, String, Text, UniqueConstraint
+from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Integer, Numeric, SmallInteger, String, Text, UniqueConstraint
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.sql import func
 
 from app.database import Base
@@ -14,6 +15,8 @@ class Negotiation(Base):
     status = Column(String(20), nullable=False, default="Draft", index=True)
     current_offer = Column(Numeric(12, 2))
     rate_con_path = Column(String(1024), nullable=True)
+    match_score = Column(SmallInteger, nullable=True)
+    match_details = Column(JSONB, nullable=True)
     pending_review_subject = Column(String(255), nullable=True)
     pending_review_body = Column(Text, nullable=True)
     pending_review_action = Column(String(40), nullable=True)

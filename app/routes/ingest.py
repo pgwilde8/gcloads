@@ -1,4 +1,5 @@
 import json
+import logging
 import os
 import re
 from typing import Any
@@ -15,7 +16,9 @@ from app.services.broker_intelligence import triage_broker_contact
 from app.services.broker_promotion import promote_scout_contact
 from app.services.email import send_negotiation_email
 from app.services.parser_rules import load_parsing_rules, resolve_contact_mode
+from app.services.scout_matching import compute_match
 
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/ingest", tags=["ingest"])
 scout_router = APIRouter(prefix="/api/scout", tags=["scout"])
@@ -47,7 +50,8 @@ class ScoutIngestIn(BaseModel):
     contact_info: dict[str, Any] | None = None
     raw_notes: str | None = None
     contact_instructions: str = "email"
-    driver_id: int | None = None
+    # auto_bid is kept for backward compat but is no longer authoritative.
+    # The backend decides based on match score + driver profile.
     auto_bid: bool = False
 
 
@@ -70,11 +74,7 @@ def _resolve_driver_by_key(
     x_api_key: str | None = Header(default=None),
     db: Session = Depends(get_db),
 ) -> Driver:
-    """Authenticate a Scout extension request by per-driver API key.
-
-    Returns the Driver row so the ingest handler never needs to trust
-    a client-supplied driver_id field.
-    """
+    """Authenticate a Scout extension request by per-driver API key."""
     if not x_api_key:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="missing_api_key")
     driver = db.query(Driver).filter(Driver.scout_api_key == x_api_key).first()
@@ -82,6 +82,8 @@ def _resolve_driver_by_key(
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="invalid_api_key")
     return driver
 
+
+# ── Bulk ingest (legacy, shared key) ──────────────────────────────────────────
 
 @router.post("/loads")
 def ingest_loads(
@@ -115,91 +117,11 @@ def ingest_loads(
     return {"received": len(loads), "inserted": inserted, "skipped": skipped}
 
 
-@scout_router.post("/ingest")
-async def ingest_load(
-    data: ScoutIngestIn = Body(...),
-    background_tasks: BackgroundTasks = None,
-    driver: Driver = Depends(_resolve_driver_by_key),
-    db: Session = Depends(get_db),
-) -> dict[str, Any]:
-    merged_metadata = dict(data.metadata)
-    contact_info = dict(data.contact_info or {})
-    if data.email and "email" not in contact_info:
-        contact_info["email"] = data.email
-    if data.phone and "phone" not in contact_info:
-        contact_info["phone"] = data.phone
+# ── Scout single-load ingest ───────────────────────────────────────────────────
 
-    if data.raw_notes:
-        merged_metadata["notes"] = data.raw_notes
-    if contact_info:
-        merged_metadata["contact_info"] = contact_info
-    if data.dot_number:
-        merged_metadata["dot_number"] = data.dot_number
-
-    contact_mode = resolve_contact_mode(data.contact_instructions, merged_metadata)
-
+def _upsert_load(db: Session, data: ScoutIngestIn, merged_metadata: dict, contact_mode: str, driver_id: int) -> Load:
+    """Insert or update a Load row.  Returns the committed Load object."""
     existing = db.query(Load).filter(Load.ref_id == data.load_id).first()
-    # driver is now resolved from the API key — no longer trusted from payload
-    raw_identity = driver.display_name if driver else "dispatch"
-    identity = re.sub(r"[^a-z0-9]", "", (raw_identity or "").lower()) or "dispatch"
-
-    def should_send_auto_bid(
-        load_obj: Load,
-        result_payload: dict[str, Any],
-        broker_email: str | None,
-    ) -> tuple[bool, str | None]:
-        standing = result_payload.get("standing") or {}
-        if standing.get("status") == "BLACKLISTED":
-            return False, "blacklisted"
-        if not data.auto_bid:
-            return False, "auto_bid_disabled"
-        if not broker_email:
-            return False, "missing_broker_email"
-        if not driver:
-            return False, "missing_driver"
-        if not load_obj.mc_number:
-            return False, "missing_mc_number"
-
-        existing_neg = (
-            db.query(Negotiation.id)
-            .filter(
-                Negotiation.load_id == load_obj.id,
-                Negotiation.driver_id == driver.id,
-            )
-            .first()
-        )
-        if existing_neg:
-            return False, "negotiation_exists"
-        return True, None
-
-    def enqueue_auto_bid(load_obj: Load, result_payload: dict[str, Any]) -> tuple[bool, str | None]:
-        broker_email = result_payload.get("email") or contact_info.get("email")
-        should_send, skip_reason = should_send_auto_bid(load_obj, result_payload, broker_email)
-        if not should_send:
-            return False, skip_reason
-
-        negotiation = Negotiation(
-            load_id=load_obj.id,
-            driver_id=driver.id,
-            broker_mc_number=load_obj.mc_number,
-            status="Sent",
-        )
-        db.add(negotiation)
-        db.commit()
-
-        if background_tasks is not None:
-            background_tasks.add_task(
-                send_negotiation_email,
-                broker_email,
-                load_obj.ref_id,
-                load_obj.origin,
-                load_obj.destination,
-                identity,
-                load_obj.source_platform,
-            )
-            return True, None
-        return False, "background_tasks_unavailable"
-
     if existing:
         if data.price:
             existing.price = data.price
@@ -211,43 +133,14 @@ async def ingest_load(
             existing.source_platform = data.source.lower()
         if data.mc_number:
             existing.mc_number = data.mc_number
-
+        if data.equipment_type:
+            existing.equipment_type = data.equipment_type
         existing.load_metadata = merged_metadata
         existing.contact_instructions = contact_mode
         existing.raw_data = json.dumps(merged_metadata) if merged_metadata else None
+        existing.ingested_by_driver_id = driver_id
         db.commit()
-
-        promote_scout_contact(
-            db,
-            mc_number=existing.mc_number or data.mc_number,
-            dot_number=data.dot_number,
-            contact_info=contact_info,
-            contact_mode=contact_mode,
-            source_platform=data.source,
-        )
-        db.commit()
-
-        result = triage_broker_contact(
-            db,
-            existing.mc_number or data.mc_number,
-            existing.id,
-            data.driver_id,
-            contact_mode,
-        )
-        email_sent, skipped_reason = enqueue_auto_bid(existing, result)
-        return {
-            "status": "success",
-            "load_id": existing.id,
-            "next_step": result["action"],
-            "reason": result.get("reason"),
-            "contact_mode": contact_mode,
-            "broker_email": result.get("email"),
-            "broker_phone": result.get("phone"),
-            "standing": result.get("standing"),
-            "identity_used": f"{identity}@{os.getenv('EMAIL_DOMAIN', 'gcdloads.com')}",
-            "email_sent": email_sent,
-            "email_skipped_reason": skipped_reason,
-        }
+        return existing
 
     new_load = Load(
         ref_id=data.load_id,
@@ -260,14 +153,137 @@ async def ingest_load(
         load_metadata=merged_metadata,
         contact_instructions=contact_mode,
         raw_data=json.dumps(merged_metadata) if merged_metadata else None,
+        ingested_by_driver_id=driver_id,
     )
     db.add(new_load)
     db.commit()
     db.refresh(new_load)
+    return new_load
 
+
+def _get_or_create_negotiation(
+    db: Session,
+    load: Load,
+    driver: Driver,
+    target_status: str,
+    match_score: int,
+    match_details: dict,
+) -> tuple[Negotiation, bool]:
+    """Return (negotiation, created).
+
+    If a negotiation already exists for this (driver, load) pair and is in a
+    terminal or active state (Sent, Queued, CLOSED, WON), do not create another.
+    If it exists as Dismissed or Draft, update it to the new target_status.
+    """
+    existing = (
+        db.query(Negotiation)
+        .filter(
+            Negotiation.driver_id == driver.id,
+            Negotiation.load_id == load.id,
+        )
+        .first()
+    )
+
+    if existing:
+        active_statuses = {"Sent", "Queued", "CLOSED", "WON"}
+        if existing.status in active_statuses:
+            return existing, False
+        # Re-activate a dismissed/draft negotiation
+        existing.status = target_status
+        existing.match_score = match_score
+        existing.match_details = match_details
+        db.commit()
+        return existing, False
+
+    neg = Negotiation(
+        load_id=load.id,
+        driver_id=driver.id,
+        broker_mc_number=load.mc_number or "UNKNOWN",
+        status=target_status,
+        match_score=match_score,
+        match_details=match_details,
+    )
+    db.add(neg)
+    db.commit()
+    db.refresh(neg)
+    return neg, True
+
+
+def _decide_next_step(
+    driver: Driver,
+    match: dict,
+    triage: dict,
+    broker_email: str | None,
+) -> str:
+    """Pure function: return the next_step string given all inputs."""
+    # 1. Driver not configured or paused
+    if not driver.scout_active:
+        return "SCOUT_PAUSED"
+
+    profile_set = bool(
+        driver.preferred_origin_region
+        or driver.preferred_destination_region
+        or driver.min_cpm
+        or driver.preferred_equipment_type
+    )
+    if not profile_set:
+        return "SETUP_REQUIRED"
+
+    # 2. Broker standing gates
+    standing_status = (triage.get("standing") or {}).get("status", "NEUTRAL")
+    if standing_status == "BLACKLISTED":
+        return "BROKER_BLOCKED"
+
+    triage_action = triage.get("action", "")
+    if triage_action == "CALL_REQUIRED":
+        return "CALL_REQUIRED"
+
+    if not broker_email:
+        return "MISSING_BROKER_EMAIL"
+
+    # 3. Score-based routing
+    score = match["score"]
+    threshold = driver.approval_threshold if driver.approval_threshold is not None else 3
+
+    if score == 4 and driver.auto_send_on_perfect_match:
+        return "AUTO_SENT"
+
+    if score >= threshold:
+        return "NEEDS_APPROVAL"
+
+    return "SAVED_ONLY"
+
+
+@scout_router.post("/ingest")
+async def ingest_load(
+    data: ScoutIngestIn = Body(...),
+    background_tasks: BackgroundTasks = None,
+    driver: Driver = Depends(_resolve_driver_by_key),
+    db: Session = Depends(get_db),
+) -> dict[str, Any]:
+    # ── Build merged metadata ──────────────────────────────────────────────────
+    merged_metadata = dict(data.metadata)
+    contact_info = dict(data.contact_info or {})
+    if data.email and "email" not in contact_info:
+        contact_info["email"] = data.email
+    if data.phone and "phone" not in contact_info:
+        contact_info["phone"] = data.phone
+    if data.raw_notes:
+        merged_metadata["notes"] = data.raw_notes
+    if contact_info:
+        merged_metadata["contact_info"] = contact_info
+    if data.dot_number:
+        merged_metadata["dot_number"] = data.dot_number
+
+    contact_mode = resolve_contact_mode(data.contact_instructions, merged_metadata)
+
+    # ── Upsert load ────────────────────────────────────────────────────────────
+    load = _upsert_load(db, data, merged_metadata, contact_mode, driver.id)
+
+    # ── Broker enrichment ──────────────────────────────────────────────────────
     promote_scout_contact(
         db,
-        mc_number=new_load.mc_number,
+        mc_number=load.mc_number,
         dot_number=data.dot_number,
         contact_info=contact_info,
         contact_mode=contact_mode,
@@ -275,27 +291,80 @@ async def ingest_load(
     )
     db.commit()
 
-    result = triage_broker_contact(
+    # ── Broker triage ──────────────────────────────────────────────────────────
+    triage = triage_broker_contact(
         db,
-        new_load.mc_number,
-        new_load.id,
-        data.driver_id,
+        load.mc_number,
+        load.id,
+        driver.id,
         contact_mode,
     )
-    email_sent, skipped_reason = enqueue_auto_bid(new_load, result)
+    broker_email: str | None = triage.get("email") or contact_info.get("email")
+
+    # ── Match scoring ──────────────────────────────────────────────────────────
+    match = compute_match(driver, load, merged_metadata)
+
+    # ── Decide action ──────────────────────────────────────────────────────────
+    next_step = _decide_next_step(driver, match, triage, broker_email)
+
+    # ── Identity string for email sender ──────────────────────────────────────
+    raw_identity = driver.display_name or "dispatch"
+    identity = re.sub(r"[^a-z0-9]", "", raw_identity.lower()) or "dispatch"
+
+    queued_negotiation_id: int | None = None
+
+    if next_step == "AUTO_SENT":
+        neg, _ = _get_or_create_negotiation(
+            db, load, driver, "Sent", match["score"], match
+        )
+        queued_negotiation_id = neg.id
+        if background_tasks is not None:
+            background_tasks.add_task(
+                send_negotiation_email,
+                broker_email,
+                load.ref_id,
+                load.origin,
+                load.destination,
+                identity,
+                load.source_platform,
+            )
+        logger.info(
+            "scout_ingest: AUTO_SENT load=%s driver=%s score=%s/4 broker_email=%s",
+            load.id, driver.id, match["score"], broker_email,
+        )
+
+    elif next_step == "NEEDS_APPROVAL":
+        neg, created = _get_or_create_negotiation(
+            db, load, driver, "Queued", match["score"], match
+        )
+        queued_negotiation_id = neg.id
+        logger.info(
+            "scout_ingest: NEEDS_APPROVAL load=%s driver=%s score=%s/4 neg=%s created=%s",
+            load.id, driver.id, match["score"], neg.id, created,
+        )
+
+    else:
+        logger.info(
+            "scout_ingest: %s load=%s driver=%s score=%s/4",
+            next_step, load.id, driver.id, match["score"],
+        )
 
     return {
         "status": "success",
-        "load_id": new_load.id,
-        "next_step": result["action"],
-        "reason": result.get("reason"),
+        "load_id": load.id,
+        "next_step": next_step,
+        "reason": triage.get("reason"),
+        "match_score": match["score"],
+        "match_total": match["total"],
+        "matched": match["matched"],
+        "missed": match["missed"],
+        "computed_rpm": match.get("computed_rpm"),
+        "queued_negotiation_id": queued_negotiation_id,
         "contact_mode": contact_mode,
-        "broker_email": result.get("email"),
-        "broker_phone": result.get("phone"),
-        "standing": result.get("standing"),
+        "broker_email": broker_email,
+        "broker_phone": triage.get("phone"),
+        "standing": triage.get("standing"),
         "identity_used": f"{identity}@{os.getenv('EMAIL_DOMAIN', 'gcdloads.com')}",
-        "email_sent": email_sent,
-        "email_skipped_reason": skipped_reason,
     }
 
 

@@ -32,7 +32,10 @@ class Driver(Base):
 	billing_state = Column(String(40), nullable=False, default="active")
 	preferred_origin_region = Column(String(100), nullable=True)
 	preferred_destination_region = Column(String(100), nullable=True)
+	preferred_equipment_type = Column(String(100), nullable=True)
 	scout_active = Column(Boolean, nullable=False, default=False)
+	auto_send_on_perfect_match = Column(Boolean, nullable=False, default=False)
+	approval_threshold = Column(Integer, nullable=False, default=3)
 	scout_api_key = Column(String(64), unique=True, nullable=True)
 	created_at = Column(DateTime(timezone=True), server_default=func.now())
 	updated_at = Column(
