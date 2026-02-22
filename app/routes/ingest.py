@@ -12,6 +12,7 @@ from app.models.driver import Driver
 from app.models.load import Load
 from app.models.operations import Negotiation
 from app.services.broker_intelligence import triage_broker_contact
+from app.services.broker_promotion import promote_scout_contact
 from app.services.email import send_negotiation_email
 from app.services.parser_rules import load_parsing_rules, resolve_contact_mode
 
@@ -198,6 +199,16 @@ async def ingest_load(
         existing.raw_data = json.dumps(merged_metadata) if merged_metadata else None
         db.commit()
 
+        promote_scout_contact(
+            db,
+            mc_number=existing.mc_number or data.mc_number,
+            dot_number=data.dot_number,
+            contact_info=contact_info,
+            contact_mode=contact_mode,
+            source_platform=data.source,
+        )
+        db.commit()
+
         result = triage_broker_contact(
             db,
             existing.mc_number or data.mc_number,
@@ -235,6 +246,16 @@ async def ingest_load(
     db.add(new_load)
     db.commit()
     db.refresh(new_load)
+
+    promote_scout_contact(
+        db,
+        mc_number=new_load.mc_number,
+        dot_number=data.dot_number,
+        contact_info=contact_info,
+        contact_mode=contact_mode,
+        source_platform=data.source,
+    )
+    db.commit()
 
     result = triage_broker_contact(
         db,

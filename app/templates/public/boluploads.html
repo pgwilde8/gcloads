@@ -1,3 +1,56 @@
+    <!-- Factoring Send Button -->
+    <div class="bg-slate-900/80 border border-slate-800 rounded-2xl p-6 mt-8">
+        <h3 class="text-xl font-bold text-white mb-4 flex items-center gap-2">
+            <i class="fas fa-paper-plane text-green-400"></i>
+            Send to Factoring
+        </h3>
+        <div class="flex gap-2 mb-4">
+            <input type="number" id="factoring-negotiation-id" placeholder="Negotiation ID" class="flex-1 rounded-lg bg-slate-800 border border-slate-700 text-white px-4 py-2 text-sm focus:border-green-500 focus:outline-none" />
+            <button onclick="sendToFactoring()" class="bg-green-600 hover:bg-green-500 text-white font-bold px-6 py-2 rounded-lg transition">
+                Send Packet
+            </button>
+        </div>
+        <div id="factoring-result" class="mt-4"></div>
+    </div>
+
+<script>
+function sendToFactoring() {
+    const negotiationId = document.getElementById('factoring-negotiation-id').value;
+    const resultDiv = document.getElementById('factoring-result');
+    if (!negotiationId) {
+        resultDiv.innerHTML = '<div class="bg-red-900/30 border border-red-500/50 rounded-lg p-4 text-red-400">Negotiation ID required.</div>';
+        return;
+    }
+    resultDiv.innerHTML = '<div class="text-slate-500"><i class="fas fa-spinner fa-spin mr-2"></i>Sending...</div>';
+    fetch(`/api/negotiations/${negotiationId}/send-to-factoring`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include'
+    })
+    .then(r => r.json())
+    .then(data => {
+        if (data.ok) {
+            resultDiv.innerHTML = `<div class="bg-green-900/30 border border-green-500/50 rounded-lg p-4">
+                <div class="flex items-center gap-2 text-green-400 mb-2">
+                    <i class="fas fa-check-circle"></i>
+                    <span class="font-bold">Factoring Packet Sent!</span>
+                </div>
+                <div class="text-sm text-slate-300 space-y-1">
+                    <div><strong>Email:</strong> ${data.to_email}</div>
+                    <div><strong>Packet Key:</strong> ${data.packet_key}</div>
+                    <div><strong>Status:</strong> ${data.status}</div>
+                    <div><strong>Sent At:</strong> ${data.sent_at || 'Pending'}</div>
+                </div>
+            </div>`;
+        } else {
+            resultDiv.innerHTML = `<div class="bg-red-900/30 border border-red-500/50 rounded-lg p-4 text-red-400">Error: ${data.message || 'Unknown error'}${data.redirect_url ? `<br><a href='${data.redirect_url}' class='underline text-amber-400'>Go to required step</a>` : ''}</div>`;
+        }
+    })
+    .catch(err => {
+        resultDiv.innerHTML = `<div class="bg-red-900/30 border border-red-500/50 rounded-lg p-4 text-red-400">Error: ${err.message}</div>`;
+    });
+}
+</script>
 {% extends "layout/base.html" %}
 
 {% block content %}

@@ -14,6 +14,7 @@ def upsert_driver_document(
     sha256_hash: str,
     negotiation_id: int | None = None,
     bucket: str | None = None,
+    source_version: str | None = None,
 ) -> int | None:
     existing = db.execute(
         text(
@@ -26,6 +27,7 @@ def upsert_driver_document(
               AND is_active = TRUE
               AND file_key = :file_key
               AND COALESCE(sha256_hash, '') = :sha256_hash
+                            AND COALESCE(source_version, '') = COALESCE(:source_version, '')
             ORDER BY id DESC
             LIMIT 1
             """
@@ -36,6 +38,7 @@ def upsert_driver_document(
             "negotiation_id": negotiation_id,
             "file_key": file_key,
             "sha256_hash": sha256_hash,
+            "source_version": source_version,
         },
     ).first()
     if existing:
@@ -69,6 +72,7 @@ def upsert_driver_document(
                 bucket,
                 file_key,
                 sha256_hash,
+                source_version,
                 is_active
             )
             VALUES (
@@ -78,6 +82,7 @@ def upsert_driver_document(
                 :bucket,
                 :file_key,
                 :sha256_hash,
+                :source_version,
                 TRUE
             )
             RETURNING id
@@ -90,9 +95,37 @@ def upsert_driver_document(
             "bucket": bucket,
             "file_key": file_key,
             "sha256_hash": sha256_hash,
+            "source_version": source_version,
         },
     ).first()
     return int(inserted.id) if inserted else None
+
+
+def deactivate_active_documents(
+    db: Session,
+    *,
+    driver_id: int,
+    doc_type: str,
+    negotiation_id: int | None = None,
+) -> int:
+    updated = db.execute(
+        text(
+            """
+            UPDATE driver_documents
+            SET is_active = FALSE
+            WHERE driver_id = :driver_id
+              AND doc_type = :doc_type
+              AND COALESCE(negotiation_id, 0) = COALESCE(:negotiation_id, 0)
+              AND is_active = TRUE
+            """
+        ),
+        {
+            "driver_id": driver_id,
+            "doc_type": doc_type,
+            "negotiation_id": negotiation_id,
+        },
+    )
+    return int(updated.rowcount or 0)
 
 
 def get_active_documents(
@@ -106,6 +139,7 @@ def get_active_documents(
         text(
             """
             SELECT id, driver_id, negotiation_id, doc_type, bucket, file_key, uploaded_at
+                                 , sha256_hash, source_version
             FROM driver_documents
             WHERE driver_id = :driver_id
               AND is_active = TRUE
@@ -133,6 +167,8 @@ def get_active_documents(
             "bucket": str(row["bucket"]) if row["bucket"] else None,
             "file_key": str(row["file_key"]),
             "uploaded_at": row["uploaded_at"].isoformat() if row["uploaded_at"] else None,
+            "sha256_hash": str(row["sha256_hash"]) if row["sha256_hash"] else None,
+            "source_version": str(row["source_version"]) if row["source_version"] else None,
         }
         for row in rows
     ]

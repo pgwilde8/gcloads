@@ -1,9 +1,10 @@
-import os
 import base64
-import io
 import hashlib
-from pathlib import Path
+import io
+import json
+import os
 from datetime import datetime, timezone
+from pathlib import Path
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
@@ -14,21 +15,45 @@ from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.models.broker import BrokerEmail
+from app.models.call_logs import CallLog
 from app.models.driver import Driver
 from app.models.load import Load
 from app.models.operations import Message, Negotiation
-from app.services.email import send_quick_reply_email
+from app.services.broker_attachments import build_broker_email_attachments
 from app.services.document_registry import upsert_driver_document
+from app.services.email import send_quick_reply_email
 from app.services.factoring import send_negotiation_to_factoring
 from app.services.ledger import process_load_fees
+from app.services.outbound_messages import log_outbound_message
 from app.services.packet_compose import compose_negotiation_packet
+from app.services.packet_manager import log_packet_snapshot
 from app.services.packet_readiness import packet_readiness_for_driver
 from app.services.packet_storage import save_bytes_by_key
-from app.services.packet_manager import log_packet_snapshot
 from app.services.storage_keys import bol_processed_key, bol_raw_key, ratecon_key
 
 
 router = APIRouter(tags=["operations"])
+
+
+def _max_packet_pdf_bytes() -> int:
+    raw_mb = os.getenv("PACKET_MAX_PDF_MB", "20").strip()
+    try:
+        mb = max(int(raw_mb), 1)
+    except ValueError:
+        mb = 20
+    return mb * 1024 * 1024
+
+
+def _parse_attachment_doc_types(raw_value: str | None) -> list[str]:
+    if not raw_value:
+        return ["BOL_PACKET"]
+
+    parsed: list[str] = []
+    for token in raw_value.split(","):
+        doc_type = token.strip().upper()
+        if doc_type and doc_type not in parsed:
+            parsed.append(doc_type)
+    return parsed or ["BOL_PACKET"]
 
 
 def _session_driver(request: Request, db: Session) -> Driver | None:
@@ -111,6 +136,76 @@ def _packet_readiness_block(request: Request, db: Session, driver_id: int):
 
     missing_labels = readiness.get("missing_labels") or []
     return _missing_docs_response(request, missing_labels)
+
+
+@router.post("/api/call-log")
+async def log_call(
+    request: Request,
+    db: Session = Depends(get_db),
+    driver_id: int = None,
+    broker_id: int = None,
+    negotiation_id: int = None,
+    load_ref: str = None,
+    phone: str = None,
+    outcome: str = None,
+    rate: float = None,
+    notes: str = None,
+):
+    if not driver_id:
+        session_driver = _session_driver(request, db)
+        if not session_driver:
+            return JSONResponse(status_code=401, content={"status": "error", "message": "auth_required"})
+        driver_id = session_driver.id
+
+    allowed_outcomes = {"LEFT_VM", "SPOKE", "WON", "LOST", "CALLBACK"}
+    if outcome not in allowed_outcomes:
+        return JSONResponse(status_code=400, content={"status": "error", "message": "Invalid outcome"})
+
+    norm_rate = None
+    if rate is not None:
+        try:
+            if isinstance(rate, str):
+                norm_rate = float(rate.replace("$", "").replace(",", "").strip())
+            else:
+                norm_rate = float(rate)
+        except Exception:
+            norm_rate = None
+
+    next_follow_up_at = None
+    if request.method == "POST":
+        form = await request.form()
+        nfua = form.get("next_follow_up_at")
+        if nfua:
+            try:
+                from dateutil import parser
+                next_follow_up_at = parser.parse(nfua)
+            except Exception:
+                next_follow_up_at = None
+
+    call_log = CallLog(
+        driver_id=driver_id,
+        broker_id=broker_id,
+        negotiation_id=negotiation_id,
+        load_ref=load_ref,
+        phone=phone,
+        outcome=outcome,
+        rate=norm_rate,
+        notes=notes,
+        next_follow_up_at=next_follow_up_at,
+    )
+    db.add(call_log)
+    db.commit()
+    db.refresh(call_log)
+
+    accept_html = request.headers.get("accept", "").lower()
+    is_hx = request.headers.get("HX-Request") == "true"
+    if "text/html" in accept_html or is_hx:
+        outcome = outcome or ""
+        return HTMLResponse(
+            status_code=200,
+            content=f"<div class='bg-green-900/30 border border-green-500/50 rounded-lg p-2 text-green-400 text-xs font-bold'>✅ Call logged: {outcome}</div>",
+        )
+    return {"status": "ok", "id": call_log.id, "created_at": call_log.created_at}
 
 
 @router.post("/api/negotiations/{negotiation_id}/compose-packet")
@@ -368,6 +463,7 @@ async def apply_rate_con_signature(
 async def secure_load_action(
     request: Request,
     negotiation_id: int = Form(...),
+    attachment_doc_types: str | None = Form(default=None),
     db: Session = Depends(get_db),
 ):
     selected_driver = _session_driver(request, db)
@@ -398,29 +494,33 @@ async def secure_load_action(
     if not broker_email_record or not broker_email_record.email:
         return {"status": "error", "message": "broker_email_not_found"}
 
-    composed = compose_negotiation_packet(
-        db,
-        driver_id=selected_driver.id,
-        negotiation_id=negotiation.id,
-        include_full_packet=True,
-    )
-    if not composed.get("ok"):
-        if composed.get("message") == "packet_readiness_required":
-            return _missing_docs_response(request, list(composed.get("missing_docs") or []))
-        return {"status": "error", **composed}
+    selected_doc_types = _parse_attachment_doc_types(attachment_doc_types)
+    if not selected_doc_types:
+        selected_doc_types = ["BOL_PACKET"]
 
-    packet_local_path = composed.get("local_path")
-    packet_attachments = [Path(str(packet_local_path))] if packet_local_path else []
-    if not packet_attachments or not packet_attachments[0].exists():
-        return {"status": "error", "message": "packet_compose_local_missing"}
+    built = build_broker_email_attachments(
+        db,
+        negotiation_id=negotiation.id,
+        driver_id=selected_driver.id,
+        selections=selected_doc_types,
+    )
+    if not built.get("ok"):
+        message = str(built.get("message") or "attachment_build_failed")
+        if message == "packet_readiness_required":
+            return _missing_docs_response(request, list(built.get("missing_docs") or []))
+        return {"status": "error", **built}
+
+    attachment_blobs = built.get("attachments") or []
+    attachment_doc_types_used = list(built.get("included_doc_types") or [])
+    if not attachment_blobs:
+        return {"status": "error", "message": "no_attachments_selected"}
 
     load_ref = load.ref_id or str(load.id)
     subject = f"Load #{load_ref} Accepted - Packet Attached"
     body = (
         "Hello,\n\n"
         "We accept this load and are ready to move forward.\n"
-        "Our carrier packet is attached (MC Authority, COI, and W9).\n\n"
-        "Please send the Rate Con and we will execute immediately.\n\n"
+        "Please review the attached documents and send the Rate Con when ready.\n\n"
         "Thank you."
     )
     watermark_footer_text = (
@@ -436,7 +536,7 @@ async def secure_load_action(
             driver_handle=selected_driver.dispatch_handle or selected_driver.display_name,
             subject=subject,
             body=body,
-            attachment_paths=packet_attachments,
+            attachment_blobs=attachment_blobs,
             load_source=load.source_platform,
             negotiation_id=negotiation.id,
             watermark_footer_text=watermark_footer_text,
@@ -445,6 +545,16 @@ async def secure_load_action(
         sent = False
 
     if not sent:
+        log_outbound_message(
+            db,
+            negotiation_id=negotiation.id,
+            driver_id=selected_driver.id,
+            recipient=broker_email_record.email,
+            subject=subject,
+            attachment_doc_types=attachment_doc_types_used,
+            status="FAILED",
+            error_message="email_send_failed",
+        )
         negotiation.status = "CLOSED_PENDING_EMAIL"
         db.add(
             Message(
@@ -461,13 +571,15 @@ async def secure_load_action(
             "email_sent": False,
         }
 
-    log_packet_snapshot(
+    log_outbound_message(
         db,
         negotiation_id=negotiation.id,
         driver_id=selected_driver.id,
-        recipient_email=broker_email_record.email,
-        attachment_paths=packet_attachments,
-        storage_root=os.getenv("PACKET_STORAGE_ROOT", "/srv/gcd-data/packets"),
+        recipient=broker_email_record.email,
+        subject=subject,
+        attachment_doc_types=attachment_doc_types_used,
+        status="SENT",
+        error_message=None,
     )
 
     process_load_fees(
@@ -492,6 +604,7 @@ async def secure_load_action(
         "status": "ok",
         "message": "load_secured_packet_dispatched",
         "email_sent": True,
+        "sent_attachment_doc_types": attachment_doc_types_used,
     }
 
 
@@ -534,19 +647,18 @@ async def upload_bol(
     else:
         return {"status": "error", "message": "unsupported_file_type"}
 
+    if len(processed_pdf) > _max_packet_pdf_bytes():
+        return {
+            "status": "error",
+            "message": "bol_pdf_too_large",
+            "friendly_error": "BOL scan is too large; re-upload as a compressed PDF.",
+        }
+
     raw_key = bol_raw_key(selected_driver.id, negotiation.id)
     processed_key = bol_processed_key(selected_driver.id, negotiation.id)
 
-    raw_save = save_bytes_by_key(
-        raw_key,
-        raw_bytes,
-        content_type=content_type,
-    )
-    processed_save = save_bytes_by_key(
-        processed_key,
-        processed_pdf,
-        content_type="application/pdf",
-    )
+    raw_save = save_bytes_by_key(raw_key, raw_bytes, content_type=content_type)
+    processed_save = save_bytes_by_key(processed_key, processed_pdf, content_type="application/pdf")
 
     if not raw_save["local_saved"] and not raw_save["spaces_saved"]:
         return {"status": "error", "message": "raw_storage_write_failed"}
@@ -588,59 +700,11 @@ async def upload_bol(
     }
 
 
-@router.post("/api/negotiations/{negotiation_id}/send-to-factoring")
-async def send_to_factoring(
-    request: Request,
-    negotiation_id: int,
-    dry_run: bool = Form(default=True),
-    db: Session = Depends(get_db),
-):
-    selected_driver = _session_driver(request, db)
-    if not selected_driver:
-        return JSONResponse(status_code=401, content={"status": "error", "message": "auth_required"})
-
-    composed = compose_negotiation_packet(
-        db,
-        driver_id=selected_driver.id,
-        negotiation_id=negotiation_id,
-        include_full_packet=True,
-    )
-    if not composed.get("ok"):
-        if composed.get("message") == "packet_readiness_required":
-            return _missing_docs_response(request, list(composed.get("missing_docs") or []))
-        return {"status": "error", **composed}
-
-    result = send_negotiation_to_factoring(
-        db,
-        negotiation_id=negotiation_id,
-        driver_id=selected_driver.id,
-        dry_run=dry_run,
-    )
-    if not result.get("ok"):
-        return {"status": "error", **result}
-
-    db.add(
-        Message(
-            negotiation_id=negotiation_id,
-            sender="System",
-            body="💸 FACTORING PACKET SENT" if not dry_run else "🧪 FACTORING PACKET READY (DRY RUN)",
-            is_read=True,
-        )
-    )
-    db.commit()
-
-    return {
-        "status": "ok",
-        "compose_packet_key": composed.get("packet_key"),
-        "compose_packet_bucket": composed.get("packet_bucket"),
-        **result,
-    }
-
-
 @router.post("/api/negotiations/retry-secure-email")
 async def retry_secure_email(
     request: Request,
     negotiation_id: int = Form(...),
+    attachment_doc_types: str | None = Form(default=None),
     db: Session = Depends(get_db),
 ):
     selected_driver = _session_driver(request, db)
@@ -673,29 +737,27 @@ async def retry_secure_email(
     if not broker_email_record or not broker_email_record.email:
         return {"status": "error", "message": "broker_email_not_found"}
 
-    composed = compose_negotiation_packet(
+    selected_doc_types = _parse_attachment_doc_types(attachment_doc_types)
+    built = build_broker_email_attachments(
         db,
-        driver_id=selected_driver.id,
         negotiation_id=negotiation.id,
-        include_full_packet=True,
+        driver_id=selected_driver.id,
+        selections=selected_doc_types,
     )
-    if not composed.get("ok"):
-        if composed.get("message") == "packet_readiness_required":
-            return _missing_docs_response(request, list(composed.get("missing_docs") or []))
-        return {"status": "error", **composed}
+    if not built.get("ok"):
+        return {"status": "error", **built}
 
-    packet_local_path = composed.get("local_path")
-    packet_attachments = [Path(str(packet_local_path))] if packet_local_path else []
-    if not packet_attachments or not packet_attachments[0].exists():
-        return {"status": "error", "message": "packet_compose_local_missing"}
+    attachment_blobs = built.get("attachments") or []
+    attachment_doc_types_used = list(built.get("included_doc_types") or [])
+    if not attachment_blobs:
+        return {"status": "error", "message": "no_attachments_selected"}
 
     load_ref = load.ref_id or str(load.id)
     subject = f"Load #{load_ref} Accepted - Packet Attached"
     body = (
         "Hello,\n\n"
         "We accept this load and are ready to move forward.\n"
-        "Our carrier packet is attached (MC Authority, COI, and W9).\n\n"
-        "Please send the Rate Con and we will execute immediately.\n\n"
+        "Please review the attached documents and send the Rate Con when ready.\n\n"
         "Thank you."
     )
     watermark_footer_text = (
@@ -711,7 +773,7 @@ async def retry_secure_email(
             driver_handle=selected_driver.dispatch_handle or selected_driver.display_name,
             subject=subject,
             body=body,
-            attachment_paths=packet_attachments,
+            attachment_blobs=attachment_blobs,
             load_source=load.source_platform,
             negotiation_id=negotiation.id,
             watermark_footer_text=watermark_footer_text,
@@ -720,13 +782,15 @@ async def retry_secure_email(
         sent = False
 
     if sent:
-        log_packet_snapshot(
+        log_outbound_message(
             db,
             negotiation_id=negotiation.id,
             driver_id=selected_driver.id,
-            recipient_email=broker_email_record.email,
-            attachment_paths=packet_attachments,
-            storage_root=os.getenv("PACKET_STORAGE_ROOT", "/srv/gcd-data/packets"),
+            recipient=broker_email_record.email,
+            subject=subject,
+            attachment_doc_types=attachment_doc_types_used,
+            status="SENT",
+            error_message=None,
         )
 
         process_load_fees(
@@ -746,7 +810,23 @@ async def retry_secure_email(
             )
         )
         db.commit()
-        return {"status": "ok", "message": "retry_successful", "email_sent": True}
+        return {
+            "status": "ok",
+            "message": "retry_successful",
+            "email_sent": True,
+            "sent_attachment_doc_types": attachment_doc_types_used,
+        }
+
+    log_outbound_message(
+        db,
+        negotiation_id=negotiation.id,
+        driver_id=selected_driver.id,
+        recipient=broker_email_record.email,
+        subject=subject,
+        attachment_doc_types=attachment_doc_types_used,
+        status="FAILED",
+        error_message="email_send_failed",
+    )
 
     db.add(
         Message(

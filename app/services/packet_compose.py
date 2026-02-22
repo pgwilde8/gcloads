@@ -1,18 +1,37 @@
 import hashlib
+import os
 from io import BytesIO
 from pathlib import Path
 
 from PyPDF2 import PdfReader, PdfWriter
 from sqlalchemy.orm import Session
 
-from app.services.document_registry import get_active_documents, upsert_driver_document
+from app.services.document_registry import deactivate_active_documents, get_active_documents, upsert_driver_document
+from app.services.packet_events import log_packet_event
 from app.services.packet_readiness import packet_readiness_for_driver
 from app.services.packet_storage import generate_presigned_get_url, read_bytes_by_key, save_bytes_by_key
 from app.services.storage_keys import bol_processed_key, negotiation_packet_key
 
 
+DEFAULT_MAX_PACKET_PDF_MB = 20
+
+
 def _sha256_hex(file_bytes: bytes) -> str:
     return hashlib.sha256(file_bytes).hexdigest()
+
+
+def _source_version(*parts: str) -> str:
+    joined = "|".join([part for part in parts if part])
+    return _sha256_hex(joined.encode("utf-8")) if joined else ""
+
+
+def _max_packet_pdf_bytes() -> int:
+    raw_mb = os.getenv("PACKET_MAX_PDF_MB", str(DEFAULT_MAX_PACKET_PDF_MB)).strip()
+    try:
+        mb = max(int(raw_mb), 1)
+    except ValueError:
+        mb = DEFAULT_MAX_PACKET_PDF_MB
+    return mb * 1024 * 1024
 
 
 def _read_document_payload(doc: dict) -> bytes | None:
@@ -76,6 +95,52 @@ def _active_doc(
 
 
 def compose_bol_packet(db: Session, *, driver_id: int, negotiation_id: int, force: bool = False) -> dict:
+    bol_docs = get_active_documents(
+        db,
+        driver_id=driver_id,
+        negotiation_id=negotiation_id,
+        doc_types=["BOL_PDF", "BOL_RAW"],
+    )
+    if not bol_docs:
+        log_packet_event(
+            db,
+            negotiation_id=negotiation_id,
+            driver_id=driver_id,
+            event_type="compose",
+            doc_type="BOL_PACKET",
+            success=False,
+            meta={"message": "upload_bol_first"},
+        )
+        return {"ok": False, "message": "upload_bol_first"}
+
+    selected_bol = next((doc for doc in bol_docs if str(doc.get("doc_type") or "").upper() == "BOL_PDF"), bol_docs[0])
+    bol_bytes = _read_document_payload(selected_bol)
+    if not bol_bytes:
+        log_packet_event(
+            db,
+            negotiation_id=negotiation_id,
+            driver_id=driver_id,
+            event_type="compose",
+            doc_type="BOL_PACKET",
+            success=False,
+            meta={"message": "bol_not_readable"},
+        )
+        return {"ok": False, "message": "bol_not_readable"}
+
+    if len(bol_bytes) > _max_packet_pdf_bytes():
+        log_packet_event(
+            db,
+            negotiation_id=negotiation_id,
+            driver_id=driver_id,
+            event_type="compose",
+            doc_type="BOL_PACKET",
+            success=False,
+            meta={"message": "bol_pdf_too_large", "size_bytes": len(bol_bytes)},
+        )
+        return {"ok": False, "message": "bol_pdf_too_large"}
+
+    bol_source_version = str(selected_bol.get("sha256_hash") or _sha256_hex(bol_bytes))
+
     if not force:
         existing = _active_doc(
             db,
@@ -83,7 +148,16 @@ def compose_bol_packet(db: Session, *, driver_id: int, negotiation_id: int, forc
             negotiation_id=negotiation_id,
             doc_type="BOL_PACKET",
         )
-        if existing:
+        if existing and str(existing.get("source_version") or "") == bol_source_version:
+            log_packet_event(
+                db,
+                negotiation_id=negotiation_id,
+                driver_id=driver_id,
+                event_type="compose_reuse",
+                doc_type="BOL_PACKET",
+                success=True,
+                meta={"reused": True},
+            )
             return {
                 "ok": True,
                 "bucket": existing.get("bucket"),
@@ -93,23 +167,26 @@ def compose_bol_packet(db: Session, *, driver_id: int, negotiation_id: int, forc
                 "reused": True,
             }
 
-    bol_docs = get_active_documents(
-        db,
-        driver_id=driver_id,
-        negotiation_id=negotiation_id,
-        doc_types=["BOL_PDF", "BOL_RAW"],
-    )
-    if not bol_docs:
-        return {"ok": False, "message": "upload_bol_first"}
-
-    selected_bol = bol_docs[0]
-    bol_bytes = _read_document_payload(selected_bol)
-    if not bol_bytes:
-        return {"ok": False, "message": "bol_not_readable"}
+        if existing:
+            deactivate_active_documents(
+                db,
+                driver_id=driver_id,
+                negotiation_id=negotiation_id,
+                doc_type="BOL_PACKET",
+            )
 
     output_key = bol_processed_key(driver_id, negotiation_id)
     saved = save_bytes_by_key(output_key, bol_bytes, content_type="application/pdf")
     if not saved["local_saved"] and not saved["spaces_saved"]:
+        log_packet_event(
+            db,
+            negotiation_id=negotiation_id,
+            driver_id=driver_id,
+            event_type="compose",
+            doc_type="BOL_PACKET",
+            success=False,
+            meta={"message": "bol_packet_storage_write_failed"},
+        )
         return {"ok": False, "message": "bol_packet_storage_write_failed"}
 
     stored_key = output_key if saved["spaces_saved"] else str(saved["local_path"])
@@ -122,6 +199,17 @@ def compose_bol_packet(db: Session, *, driver_id: int, negotiation_id: int, forc
         bucket=stored_bucket,
         file_key=stored_key,
         sha256_hash=_sha256_hex(bol_bytes),
+        source_version=bol_source_version,
+    )
+
+    log_packet_event(
+        db,
+        negotiation_id=negotiation_id,
+        driver_id=driver_id,
+        event_type="compose",
+        doc_type="BOL_PACKET",
+        success=True,
+        meta={"reused": False, "source_version": bol_source_version},
     )
 
     return {
@@ -142,15 +230,6 @@ def compose_negotiation_packet(
     include_full_packet: bool = False,
     force: bool = False,
 ) -> dict:
-    readiness = packet_readiness_for_driver(db, driver_id)
-    if not readiness.get("ready"):
-        return {
-            "ok": False,
-            "message": "packet_readiness_required",
-            "missing_docs": readiness.get("missing_labels") or [],
-            "redirect_url": "/onboarding/step3",
-        }
-
     bol_compose = compose_bol_packet(
         db,
         driver_id=driver_id,
@@ -159,6 +238,8 @@ def compose_negotiation_packet(
     )
     if not bol_compose.get("ok"):
         return bol_compose
+
+    readiness = packet_readiness_for_driver(db, driver_id)
 
     result: dict = {
         "ok": True,
@@ -176,6 +257,55 @@ def compose_negotiation_packet(
     if not include_full_packet:
         return result
 
+    if not readiness.get("ready"):
+        log_packet_event(
+            db,
+            negotiation_id=negotiation_id,
+            driver_id=driver_id,
+            event_type="compose",
+            doc_type="NEGOTIATION_PACKET",
+            success=False,
+            meta={
+                "message": "packet_readiness_required",
+                "missing_docs": readiness.get("missing_labels") or [],
+            },
+        )
+        return {
+            "ok": False,
+            "message": "packet_readiness_required",
+            "missing_docs": readiness.get("missing_labels") or [],
+            "redirect_url": "/onboarding/step3",
+        }
+
+    driver_docs = get_active_documents(
+        db,
+        driver_id=driver_id,
+        negotiation_id=None,
+        doc_types=["W9", "INSURANCE", "AUTHORITY"],
+    )
+    driver_doc_map = {str(doc.get("doc_type") or "").upper(): doc for doc in driver_docs}
+
+    bol_packet_doc = _active_doc(
+        db,
+        driver_id=driver_id,
+        negotiation_id=negotiation_id,
+        doc_type="BOL_PACKET",
+    )
+    ratecon_doc = _active_doc(
+        db,
+        driver_id=driver_id,
+        negotiation_id=negotiation_id,
+        doc_type="RATECON",
+    )
+
+    full_packet_source_version = _source_version(
+        str(bol_packet_doc.get("sha256_hash") if bol_packet_doc else ""),
+        str(ratecon_doc.get("sha256_hash") if ratecon_doc else ""),
+        str(driver_doc_map.get("W9", {}).get("sha256_hash") or ""),
+        str(driver_doc_map.get("INSURANCE", {}).get("sha256_hash") or ""),
+        str(driver_doc_map.get("AUTHORITY", {}).get("sha256_hash") or ""),
+    )
+
     if not force:
         existing_packet = _active_doc(
             db,
@@ -183,14 +313,8 @@ def compose_negotiation_packet(
             negotiation_id=negotiation_id,
             doc_type="NEGOTIATION_PACKET",
         )
-        if existing_packet:
+        if existing_packet and str(existing_packet.get("source_version") or "") == full_packet_source_version:
             existing_included_docs: list[str] = ["BOL_PACKET"]
-            ratecon_doc = _active_doc(
-                db,
-                driver_id=driver_id,
-                negotiation_id=negotiation_id,
-                doc_type="RATECON",
-            )
             if ratecon_doc:
                 existing_included_docs.append("RATECON")
 
@@ -209,15 +333,24 @@ def compose_negotiation_packet(
                     "presigned_url": _doc_presigned_url(existing_packet.get("bucket"), existing_packet.get("file_key")),
                 }
             )
+            log_packet_event(
+                db,
+                negotiation_id=negotiation_id,
+                driver_id=driver_id,
+                event_type="compose_reuse",
+                doc_type="NEGOTIATION_PACKET",
+                success=True,
+                meta={"reused": True, "source_version": full_packet_source_version},
+            )
             return result
 
-    driver_docs = get_active_documents(
-        db,
-        driver_id=driver_id,
-        negotiation_id=None,
-        doc_types=["W9", "INSURANCE", "AUTHORITY"],
-    )
-    driver_doc_map = {str(doc.get("doc_type") or "").upper(): doc for doc in driver_docs}
+        if existing_packet:
+            deactivate_active_documents(
+                db,
+                driver_id=driver_id,
+                negotiation_id=negotiation_id,
+                doc_type="NEGOTIATION_PACKET",
+            )
 
     ordered: list[tuple[str, bytes]] = []
     included_docs: list[str] = []
@@ -253,11 +386,41 @@ def compose_negotiation_packet(
 
     merged = _merge_pdf_bytes(ordered)
     if not merged:
+        log_packet_event(
+            db,
+            negotiation_id=negotiation_id,
+            driver_id=driver_id,
+            event_type="compose",
+            doc_type="NEGOTIATION_PACKET",
+            success=False,
+            meta={"message": "packet_merge_failed", "included_docs": included_docs},
+        )
         return {"ok": False, "message": "packet_merge_failed", "included_docs": included_docs}
+
+    if len(merged) > _max_packet_pdf_bytes():
+        log_packet_event(
+            db,
+            negotiation_id=negotiation_id,
+            driver_id=driver_id,
+            event_type="compose",
+            doc_type="NEGOTIATION_PACKET",
+            success=False,
+            meta={"message": "packet_pdf_too_large", "size_bytes": len(merged), "included_docs": included_docs},
+        )
+        return {"ok": False, "message": "packet_pdf_too_large", "included_docs": included_docs}
 
     packet_key = negotiation_packet_key(driver_id, negotiation_id)
     saved = save_bytes_by_key(packet_key, merged, content_type="application/pdf")
     if not saved["local_saved"] and not saved["spaces_saved"]:
+        log_packet_event(
+            db,
+            negotiation_id=negotiation_id,
+            driver_id=driver_id,
+            event_type="compose",
+            doc_type="NEGOTIATION_PACKET",
+            success=False,
+            meta={"message": "negotiation_packet_storage_write_failed", "included_docs": included_docs},
+        )
         return {"ok": False, "message": "negotiation_packet_storage_write_failed"}
 
     stored_key = packet_key if saved["spaces_saved"] else str(saved["local_path"])
@@ -271,6 +434,7 @@ def compose_negotiation_packet(
         bucket=stored_bucket,
         file_key=stored_key,
         sha256_hash=_sha256_hex(merged),
+        source_version=full_packet_source_version,
     )
 
     presigned_url = _doc_presigned_url(stored_bucket, packet_key)
@@ -285,5 +449,14 @@ def compose_negotiation_packet(
             "local_path": str(saved["local_path"]) if saved.get("local_path") else None,
             "presigned_url": presigned_url,
         }
+    )
+    log_packet_event(
+        db,
+        negotiation_id=negotiation_id,
+        driver_id=driver_id,
+        event_type="compose",
+        doc_type="NEGOTIATION_PACKET",
+        success=True,
+        meta={"included_docs": result.get("included_docs") or [], "source_version": full_packet_source_version},
     )
     return result

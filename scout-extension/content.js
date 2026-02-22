@@ -1,4 +1,4 @@
-const DEFAULT_API_BASE = "https://greencandledispatch.com";
+const DEFAULT_API_BASE = "https://codriverfreight.com";
 const DEFAULT_ENDPOINT = "/api/scout/ingest";
 
 const getText = () => document.body?.innerText || "";
@@ -57,7 +57,7 @@ const setButtonState = (btn, label, color) => {
 
 const setTransientState = (btn, label, color, timeoutMs = 2500) => {
     setButtonState(btn, label, color);
-    setTimeout(() => setButtonState(btn, "SHIP TO GCD", "#10b981"), timeoutMs);
+    setTimeout(() => setButtonState(btn, "SHIP TO DISPATCH", "#10b981"), timeoutMs);
 };
 
 const setBlockedState = (btn, note) => {
@@ -102,14 +102,14 @@ const injectButton = () => {
 
     const btn = document.createElement("button");
     btn.id = "gcd-scout-btn";
-    btn.innerText = "SHIP TO GCD";
+    btn.innerText = "SHIP TO DISPATCH";
     btn.style = "position:fixed; top:20px; right:20px; z-index:999999; background:#10b981; color:white; padding:12px; border-radius:8px; font-weight:bold; cursor:pointer; border:none; box-shadow: 0 4px 6px rgba(0,0,0,0.1);";
 
     btn.onclick = async () => {
         const data = harvestLoadData();
         if (!data.load_id) {
             setButtonState(btn, "MISSING LOAD ID", "#ef4444");
-            setTimeout(() => setButtonState(btn, "SHIP TO GCD", "#10b981"), 2000);
+            setTimeout(() => setButtonState(btn, "SHIP TO DISPATCH", "#10b981"), 2000);
             return;
         }
 
@@ -119,7 +119,7 @@ const injectButton = () => {
             const config = await getConfig();
             if (!config.gcdApiKey) {
                 setButtonState(btn, "NO API KEY", "#ef4444");
-                setTimeout(() => setButtonState(btn, "SHIP TO GCD", "#10b981"), 2500);
+                setTimeout(() => setButtonState(btn, "SHIP TO DISPATCH", "#10b981"), 2500);
                 return;
             }
 
@@ -140,7 +140,7 @@ const injectButton = () => {
                     return;
                 }
                 if (setStandingState(btn, standing.status, standing.note || null)) {
-                    setTimeout(() => setButtonState(btn, "SHIP TO GCD", "#10b981"), 3000);
+                    setTimeout(() => setButtonState(btn, "SHIP TO DISPATCH", "#10b981"), 3000);
                     return;
                 }
 

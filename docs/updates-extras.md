@@ -1,3 +1,27 @@
+# Call-required Loads Verification
+
+## SQL
+```
+docker-compose exec -T db psql -U gcd_admin -d gcloads_db -c "\nSELECT id, driver_id, load_ref, phone, outcome, rate, created_at\nFROM call_logs ORDER BY id DESC LIMIT 10;"
+```
+
+## Browser
+- Open dashboard, find a load with CALL required.
+- Click Call Broker, log a call, see UI success feedback.
+# Lane B: Factoring Send Verification
+
+1) Show driver factor email set:
+	SELECT id, factor_packet_email, onboarding_status FROM drivers WHERE id=...;
+
+2) Compose full packet exists:
+	SELECT doc_type, bucket, file_key FROM driver_documents WHERE negotiation_id=... AND doc_type='NEGOTIATION_PACKET' AND is_active=true;
+
+3) Insert QUEUED then SENT row:
+	SELECT negotiation_id, status, to_email, packet_key, sent_at, error_message FROM factoring_submissions WHERE negotiation_id=...;
+
+4) Missing factor email produces 409 with redirect_url and no submission row created.
+
+5) Pending-century produces 409 blocked.
 This is *really* good product thinking. You’re solving three painful realities in trucking dispatch all at once:
 
 1. **“Carrier packet” chaos** (insurance/W-9/authority/etc)
@@ -272,3 +296,179 @@ Ship the highest-impact reliability upgrades first, then move into packet versio
 - Faster triage when brokers dispute packet contents.
 - Lower support time to resolve packet/email incidents.
 - Cleaner onboarding to factoring workflows.
+
+
+This is good. You’re not just coding — you’re actually understanding your system. That’s how you avoid subtle production landmines later.
+
+Let me zoom out and frame what you’ve uncovered in a clean way, because this matters architecturally.
+
+---
+
+## 1️⃣ Your Two-Schema Architecture Is Actually Strong
+
+You’ve unintentionally built something very sane:
+
+### `webwise` = Market Intelligence Layer
+
+* 25k+ brokers
+* Broker validation vault
+* Canonical MC numbers
+* Email gold list
+
+This is reference data.
+It should be relatively static.
+It validates operations.
+
+### `public` = Live Operational Layer
+
+* drivers
+* loads
+* negotiations
+* messages
+* scout_status
+* billing tables (now)
+
+This is transactional data.
+High write volume.
+Time-sensitive.
+Driver-scoped.
+
+That separation is enterprise-grade whether you intended it or not.
+
+Don’t collapse it later unless you have a strong reason.
+
+---
+
+## 2️⃣ The Foreign Key Lesson Was Important
+
+Your `negotiations` FK to `webwise.brokers` is doing something powerful:
+
+> You cannot negotiate with a broker that isn’t validated.
+
+That prevents:
+
+* Typos
+* Random MC spam
+* Dirty data
+* Email listener chaos
+
+That’s good friction.
+
+But it also means:
+If the broker vault is wrong or missing MC → your whole inbound flow silently fails.
+
+That’s something to remember when debugging production.
+
+---
+
+## 3️⃣ The Email + display_name Coupling
+
+This part is fragile long-term:
+
+> plus-tag must match display_name
+
+It works.
+But it’s a coupling between identity and email routing.
+
+At scale, you may eventually want:
+
+* email token referencing driver_id directly
+* or a routing table separate from display_name
+
+Not urgent — just planting the seed.
+
+---
+
+## 4️⃣ The Real-Time Monitoring Command
+
+If you want a clean production-friendly monitor without clutter:
+
+```bash
+watch -n 2 "docker exec -t gcloads_db psql -U gcd_admin -d gcloads_db -c \
+\"SELECT id, negotiation_id, sender, timestamp, is_read 
+FROM public.messages 
+ORDER BY timestamp DESC 
+LIMIT 10;\""
+```
+
+If you want to monitor a specific negotiation (10245):
+
+```bash
+watch -n 2 "docker exec -t gcloads_db psql -U gcd_admin -d gcloads_db -c \
+\"SELECT id, sender, timestamp, is_read 
+FROM public.messages 
+WHERE negotiation_id = 10245
+ORDER BY timestamp DESC;\""
+```
+
+That’s your live heartbeat.
+
+---
+
+## 5️⃣ Important: Don’t Let Intelligence Drift
+
+You now have:
+
+* Broker vault in `webwise`
+* Negotiations FK-bound to it
+* Messages tied by integer negotiation_id
+* Billing tied to negotiations
+
+That’s a chain:
+
+Broker → Negotiation → Messages → Invoice → Billing Run
+
+That chain must stay clean.
+
+Any time you:
+
+* change schemas
+* rename fields
+* loosen FKs
+* allow “temporary brokers”
+
+You risk breaking the chain.
+
+---
+
+## 6️⃣ Bigger Strategic Insight
+
+What you’ve built is not “dispatch software.”
+
+It’s a constrained operations system:
+
+* Identity is tight
+* Brokers are validated
+* Loads are linked
+* Messages are structured
+* Billing is deterministic
+
+That’s why the accounting feature will work.
+Because your data graph is real.
+
+---
+
+Now let me pivot this back to something important.
+
+You’ve got:
+
+* Negotiation engine stable
+* Broker vault validated
+* Billing engine built
+* Weekly autopay strict
+
+The next serious risk area in your system is:
+
+**Email reliability and threading integrity.**
+
+Because that’s your revenue engine.
+
+So let me ask you directly:
+
+Have you verified that inbound listener:
+
+* always resolves negotiation_id deterministically,
+* and cannot mis-attach a message to the wrong negotiation if subjects are malformed?
+
+That’s the next place subtle chaos hides.
+

@@ -7,6 +7,15 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/htmx.org@1.9.10"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <script>
+    function copyText(id) {
+        var el = document.getElementById(id);
+        if (el) {
+            var text = el.innerText || el.value;
+            navigator.clipboard.writeText(text);
+        }
+    }
+    </script>
     <style>
         @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
         .mission-tutorial-fade { animation: fadeIn 0.3s ease-out forwards; }

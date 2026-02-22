@@ -4,13 +4,27 @@
       "email bids only",
       "email only",
       "send bid via email",
-      "submit via email"
+      "submit via email",
+      "email bid",
+      "bids via email",
+      "send rate via email",
+      "no phone calls",
+      "do not call"
     ],
     "call": [
       "phone calls only",
       "call to book",
       "must call",
-      "no emails"
+      "no emails",
+      "call for rate",
+      "call only",
+      "call broker",
+      "please call",
+      "call us",
+      "call now",
+      "contact by phone",
+      "phone only",
+      "no email"
     ]
   },
   "source_platforms": {

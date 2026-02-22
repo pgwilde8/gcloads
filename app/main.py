@@ -1,6 +1,8 @@
+
 import logging
 from datetime import datetime, timezone
 from pathlib import Path
+from sqlalchemy import text
 
 from fastapi import Depends, FastAPI, File, Form, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
@@ -168,6 +170,41 @@ def startup() -> None:
         connection.execute(text("ALTER TABLE public.negotiations ADD COLUMN IF NOT EXISTS rate_con_path VARCHAR(1024)"))
         connection.execute(text("ALTER TABLE public.negotiations ADD COLUMN IF NOT EXISTS pending_review_subject VARCHAR(255)"))
         connection.execute(text("ALTER TABLE public.negotiations ADD COLUMN IF NOT EXISTS pending_review_body TEXT"))
+        connection.execute(text("ALTER TABLE public.driver_documents ADD COLUMN IF NOT EXISTS source_version VARCHAR(64)"))
+        connection.execute(
+            text(
+                """
+                CREATE TABLE IF NOT EXISTS public.packet_events (
+                    id BIGSERIAL PRIMARY KEY,
+                    negotiation_id INTEGER REFERENCES negotiations(id) ON DELETE SET NULL,
+                    driver_id INTEGER NOT NULL REFERENCES drivers(id) ON DELETE CASCADE,
+                    event_type VARCHAR(64) NOT NULL,
+                    doc_type VARCHAR(64) NOT NULL,
+                    success BOOLEAN NOT NULL DEFAULT FALSE,
+                    meta_json JSONB,
+                    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+                )
+                """
+            )
+        )
+        connection.execute(
+            text(
+                """
+                CREATE TABLE IF NOT EXISTS public.outbound_messages (
+                    id BIGSERIAL PRIMARY KEY,
+                    negotiation_id INTEGER REFERENCES negotiations(id) ON DELETE SET NULL,
+                    driver_id INTEGER NOT NULL REFERENCES drivers(id) ON DELETE CASCADE,
+                    channel VARCHAR(20) NOT NULL DEFAULT 'email',
+                    recipient VARCHAR(255) NOT NULL,
+                    subject VARCHAR(512) NOT NULL,
+                    attachment_doc_types JSONB NOT NULL DEFAULT '[]'::jsonb,
+                    status VARCHAR(20) NOT NULL,
+                    error_message TEXT,
+                    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+                )
+                """
+            )
+        )
         connection.execute(text("ALTER TABLE public.negotiations ADD COLUMN IF NOT EXISTS pending_review_action VARCHAR(40)"))
         connection.execute(text("ALTER TABLE public.negotiations ADD COLUMN IF NOT EXISTS pending_review_price NUMERIC(12,2)"))
         connection.execute(text("ALTER TABLE public.negotiations ADD COLUMN IF NOT EXISTS factoring_status VARCHAR(20)"))
@@ -563,6 +600,54 @@ async def get_active_negotiations(
             .all()
         )
 
+        # Fetch latest call log per negotiation in one query (avoids N+1)
+        neg_ids = [n.id for n in negotiations]
+        call_log_by_neg: dict[int, dict] = {}
+        if neg_ids:
+            cl_rows = db.execute(
+                text("""
+                    SELECT DISTINCT ON (negotiation_id)
+                        negotiation_id,
+                        outcome  AS last_call_outcome,
+                        rate     AS last_call_rate,
+                        created_at AS last_call_at,
+                        next_follow_up_at
+                    FROM public.call_logs
+                    WHERE driver_id = :driver_id
+                      AND negotiation_id = ANY(:neg_ids)
+                    ORDER BY negotiation_id, created_at DESC, id DESC
+                """),
+                {"driver_id": selected_driver.id, "neg_ids": neg_ids},
+            ).mappings().all()
+            for cl in cl_rows:
+                call_log_by_neg[cl["negotiation_id"]] = dict(cl)
+
+        # Fetch broker phone/contact-preference per mc_number in one query (avoids N+1)
+        mc_numbers = list({n.broker_mc_number for n in negotiations if n.broker_mc_number})
+        broker_info_by_mc: dict[str, dict] = {}
+        if mc_numbers:
+            b_rows = db.execute(
+                text("""
+                    SELECT mc_number,
+                           primary_phone            AS broker_phone,
+                           preferred_contact_method AS broker_contact_preference
+                    FROM webwise.brokers
+                    WHERE mc_number = ANY(:mc_numbers)
+                """),
+                {"mc_numbers": mc_numbers},
+            ).mappings().all()
+            for b in b_rows:
+                broker_info_by_mc[b["mc_number"]] = dict(b)
+
+        # Global doc types are the same for every card — fetch once
+        global_docs = get_active_documents(
+            db,
+            driver_id=selected_driver.id,
+            negotiation_id=None,
+            doc_types=["W9", "INSURANCE", "AUTHORITY"],
+        )
+        global_doc_types = {str(doc.get("doc_type") or "") for doc in global_docs}
+
         for negotiation in negotiations:
             load = db.query(Load).filter(Load.id == negotiation.load_id).first()
             broker_email = (
@@ -575,9 +660,13 @@ async def get_active_negotiations(
                 db,
                 driver_id=selected_driver.id,
                 negotiation_id=negotiation.id,
-                doc_types=["BOL_RAW", "BOL_PDF", "BOL_PACKET", "NEGOTIATION_PACKET"],
+                doc_types=["BOL_RAW", "BOL_PDF", "BOL_PACKET", "NEGOTIATION_PACKET", "RATECON"],
             )
             doc_types = {str(doc.get("doc_type") or "") for doc in negotiation_docs}
+
+            cl = call_log_by_neg.get(negotiation.id, {})
+            bi = broker_info_by_mc.get(negotiation.broker_mc_number or "", {})
+
             cards.append(
                 {
                     "negotiation_id": negotiation.id,
@@ -588,13 +677,25 @@ async def get_active_negotiations(
                     "price": load.price if load else "",
                     "equipment_type": load.equipment_type if load else "",
                     "broker_email": broker_email.email if broker_email else None,
+                    "broker_phone": bi.get("broker_phone"),
+                    "broker_contact_preference": bi.get("broker_contact_preference"),
+                    "is_call_required": bi.get("broker_contact_preference") == "call",
                     "driver_email": selected_driver.email,
                     "has_bol_raw": "BOL_RAW" in doc_types or "BOL_PDF" in doc_types,
                     "has_bol_packet": "BOL_PACKET" in doc_types,
                     "has_full_packet": "NEGOTIATION_PACKET" in doc_types,
+                    "has_ratecon": "RATECON" in doc_types,
+                    "has_w9": "W9" in global_doc_types,
+                    "has_coi": "INSURANCE" in global_doc_types,
+                    "has_authority": "AUTHORITY" in global_doc_types,
                     "has_pending_review": bool(negotiation.pending_review_body),
                     "pending_review_action": negotiation.pending_review_action or "",
                     "pending_review_price": float(negotiation.pending_review_price) if negotiation.pending_review_price is not None else None,
+                    # call log fields
+                    "last_call_outcome": cl.get("last_call_outcome"),
+                    "last_call_rate": float(cl["last_call_rate"]) if cl.get("last_call_rate") is not None else None,
+                    "last_call_at": cl.get("last_call_at"),
+                    "next_follow_up_at": cl.get("next_follow_up_at"),
                 }
             )
 
@@ -1363,6 +1464,72 @@ async def first_mission_partial(request: Request):
         "drivers/partials/first_mission.html",
         {"request": request},
     )
+
+
+@app.post("/internal/billing/run")
+async def internal_billing_run(
+    request: Request,
+    week_ending: str | None = None,
+    dry_run: bool = True,
+    db: Session = Depends(get_db),
+):
+    """
+    Admin-protected endpoint to trigger the weekly billing job.
+    week_ending: YYYY-MM-DD (defaults to current Friday in America/New_York)
+    dry_run: true = preview only, no Stripe charges, no DB writes
+    """
+    from app.routes.admin import _admin_token_authorized
+    from app.services.billing import run_weekly_billing, current_week_ending
+    import datetime as _dt
+
+    admin_token = request.headers.get("x-admin-token") or request.query_params.get("admin_token")
+    if not _admin_token_authorized(admin_token):
+        return JSONResponse(status_code=401, content={"error": "Unauthorized"})
+
+    if week_ending:
+        try:
+            parsed_week_ending = _dt.date.fromisoformat(week_ending)
+        except ValueError:
+            return JSONResponse(status_code=400, content={"error": "week_ending must be YYYY-MM-DD"})
+    else:
+        parsed_week_ending = current_week_ending()
+
+    result = run_weekly_billing(db=db, week_ending=parsed_week_ending, dry_run=dry_run)
+
+    response: dict = {
+        "week_ending": parsed_week_ending.isoformat(),
+        "dry_run": result.dry_run,
+        "drivers_processed": result.drivers_processed,
+        "drivers_succeeded": result.drivers_succeeded,
+        "drivers_failed": result.drivers_failed,
+        "drivers_skipped": result.drivers_skipped,
+        "total_amount_cents": result.total_amount_cents,
+        "total_amount_usd": round(result.total_amount_cents / 100, 2),
+    }
+
+    if dry_run:
+        response["dry_run_preview"] = [
+            {
+                "driver_id": r.driver_id,
+                "invoice_ids": r.invoice_ids,
+                "total_cents": r.total_amount_cents,
+                "total_usd": round(r.total_amount_cents / 100, 2),
+            }
+            for r in result.driver_results
+        ]
+    else:
+        response["driver_results"] = [
+            {
+                "driver_id": r.driver_id,
+                "status": r.status,
+                "total_cents": r.total_amount_cents,
+                "stripe_payment_intent_id": r.stripe_payment_intent_id,
+                "error_message": r.error_message,
+            }
+            for r in result.driver_results
+        ]
+
+    return JSONResponse(content=response)
 
 
 @app.get("/health")

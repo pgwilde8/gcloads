@@ -25,6 +25,8 @@ class CoreSettings(BaseSettings):
     FACTORING_API_AUTH_SCHEME: str = "Bearer"
     FACTORING_API_TIMEOUT_SECONDS: int = 20
 
+    MAX_EMAIL_ATTACHMENT_BYTES: int = 20 * 1024 * 1024  # 20MB default
+
     APP_BASE_URL: str = "https://app.greencandledispatch.com"
     CENTURY_REFERRAL_TO_EMAIL: str = "techsmartmarketing8@gmail.com"
     MAGIC_LINK_TOKEN_TTL_MINUTES: int = 30

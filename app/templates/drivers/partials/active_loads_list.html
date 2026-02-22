@@ -11,7 +11,36 @@
       </div>
     </div>
 
-    {% if card.broker_email %}
+    {% set call_required = card.broker_contact_preference == 'CALL' or not card.broker_email or card.is_call_required %}
+    {% if call_required %}
+    <div class="flex items-center gap-2 mb-2">
+      <span class="bg-amber-700 text-white text-xs font-bold px-2 py-1 rounded">CALL</span>
+      {% if card.broker_phone %}
+        <span class="text-green-400 font-bold text-xs">{{ card.broker_phone }}</span>
+      {% endif %}
+      <button type="button" class="bg-green-700 hover:bg-green-600 text-white text-xs font-bold px-3 py-1 rounded transition" onclick="toggleCallPanel('{{ card.load_ref }}')">Call Broker</button>
+      {% if card.last_call_outcome %}
+        <span class="bg-slate-800 text-green-300 text-xs font-bold px-2 py-1 rounded ml-2">{{ card.last_call_outcome }} · {{ card.last_call_at|timeago }}</span>
+      {% endif %}
+      {% if card.next_follow_up_at %}
+        <span class="bg-emerald-900 text-emerald-300 text-xs font-bold px-2 py-1 rounded ml-2">Callback at {{ card.next_follow_up_at|datetime }}</span>
+      {% endif %}
+    </div>
+    <div class="flex items-center gap-2 mb-2">
+      <span class="bg-amber-700 text-white text-xs font-bold px-2 py-1 rounded">CALL</span>
+      {% if card.broker_phone %}
+        <span class="text-green-400 font-bold text-xs">{{ card.broker_phone }}</span>
+      {% endif %}
+      <button type="button" class="bg-green-700 hover:bg-green-600 text-white text-xs font-bold px-3 py-1 rounded transition" onclick="toggleCallPanel('{{ card.load_ref }}')">Call Broker</button>
+    </div>
+    {% include 'drivers/partials/call_panel.html' with context %}
+    <script>
+    function toggleCallPanel(loadRef) {
+      var panel = document.getElementById('call-panel-' + loadRef);
+      if (panel) panel.style.display = (panel.style.display === 'none' ? 'block' : 'none');
+    }
+    </script>
+    {% endif %}
     {% if card.has_pending_review %}
     <div class="bg-violet-900/20 border border-violet-500/50 p-4 rounded-2xl flex justify-between items-center">
       <div class="flex items-center gap-3">
@@ -85,6 +114,43 @@
     </div>
 
     <div class="flex flex-wrap gap-2">
+      <form id="broker-attachment-form-{{ card.negotiation_id }}" class="flex flex-wrap gap-2 items-center" onsubmit="event.preventDefault(); runSecureLoadWithAttachments({{ card.negotiation_id }}, this);">
+        <label class="text-xs text-slate-400 font-bold mr-2">Attach:</label>
+        <input type="checkbox" name="attachment_doc_types" value="BOL_PACKET" checked disabled class="mr-1"> <span class="mr-2">BOL Packet</span>
+        {% if card.has_ratecon %}
+        <input type="checkbox" name="attachment_doc_types" value="RATECON" class="mr-1"> <span class="mr-2">RateCon</span>
+        {% endif %}
+        {% if card.has_w9 %}
+        <input type="checkbox" name="attachment_doc_types" value="W9" class="mr-1"> <span class="mr-2">W9</span>
+        {% endif %}
+        {% if card.has_coi %}
+        <input type="checkbox" name="attachment_doc_types" value="INSURANCE" class="mr-1"> <span class="mr-2">COI</span>
+        {% endif %}
+        {% if card.has_authority %}
+        <input type="checkbox" name="attachment_doc_types" value="AUTHORITY" class="mr-1"> <span class="mr-2">MC Authority</span>
+        {% endif %}
+        <button type="submit" class="bg-green-600 hover:bg-green-500 text-white text-xs font-black px-6 py-2 rounded-xl shadow-lg shadow-green-500/20 transition-all active:scale-95 ml-2">🎯 SECURE &amp; SEND PACKET</button>
+      </form>
+      <script>
+      function runSecureLoadWithAttachments(negotiationId, formEl) {
+        if (!negotiationId || !formEl) return;
+        const checkboxes = formEl.querySelectorAll('input[type="checkbox"][name="attachment_doc_types"]');
+        const selected = Array.from(checkboxes).filter(cb => cb.checked && !cb.disabled).map(cb => cb.value);
+        const body = new URLSearchParams({ negotiation_id: String(negotiationId), attachment_doc_types: selected.join(',') });
+        fetch('/api/negotiations/secure-load', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'Accept': 'application/json' },
+          body: body.toString(),
+        }).then(resp => resp.json()).then(data => {
+          if (!data || data.status !== 'ok') {
+            alert('Secure failed: ' + (data.message || 'secure_load_failed'));
+            return;
+          }
+          alert('Packet sent! Attachments: ' + (data.sent_attachment_doc_types || []).join(', '));
+          if (window.htmx) window.htmx.trigger(document.body, 'dashboardActiveLoadsRefresh');
+        }).catch(() => alert('Secure failed: network error'));
+      }
+      </script>
       <button type="button"
               class="bg-blue-600 hover:bg-blue-500 text-white text-[11px] font-bold px-3 py-2 rounded-lg transition"
               onclick="runComposePacket({{ card.negotiation_id }}, this)">

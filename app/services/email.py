@@ -8,7 +8,21 @@ from pathlib import Path
 
 from PyPDF2 import PdfReader, PdfWriter
 from reportlab.pdfgen import canvas
+
 from app.core.config import settings
+
+def send_factoring_packet_email(to_email, subject, body, attachments):
+    msg = EmailMessage()
+    msg['Subject'] = subject
+    msg['To'] = to_email
+    msg['From'] = settings.ADMIN_TOKEN or 'no-reply@gcdloads.com'
+    msg.set_content(body)
+    for filename, file_bytes in attachments:
+        msg.add_attachment(file_bytes, maintype='application', subtype='pdf', filename=filename)
+    with smtplib.SMTP(settings.SMTP_HOST, settings.SMTP_PORT) as smtp:
+        smtp.starttls()
+        smtp.login(settings.SMTP_USER, settings.SMTP_PASSWORD)
+        smtp.send_message(msg)
 
 
 SOURCE_TAG_ALIASES = {
@@ -150,6 +164,7 @@ def send_quick_reply_email(
     subject: str,
     body: str,
     attachment_paths: list[Path] | None = None,
+    attachment_blobs: list[tuple[str, bytes, str]] | None = None,
     load_source: str | None = None,
     negotiation_id: int | None = None,
     watermark_footer_text: str | None = None,
@@ -199,6 +214,21 @@ def send_quick_reply_email(
             filename=attachment_path.name,
         )
 
+    for filename, file_bytes, mime_type in attachment_blobs or []:
+        if settings.WATERMARK_ENABLED and watermark_footer_text and filename.lower().endswith(".pdf"):
+            file_bytes = _add_pdf_footer_watermark(file_bytes, watermark_footer_text)
+
+        maintype, subtype = "application", "octet-stream"
+        if "/" in (mime_type or ""):
+            maintype, subtype = mime_type.split("/", 1)
+
+        message.add_attachment(
+            file_bytes,
+            maintype=maintype,
+            subtype=subtype,
+            filename=filename,
+        )
+
     with smtplib.SMTP_SSL(smtp_host, smtp_port, timeout=20) as client:
         client.login(smtp_user, smtp_password)
         client.send_message(message, from_addr=smtp_user, to_addrs=[tagged_broker_email])
@@ -213,6 +243,7 @@ async def send_outbound_email(
     load_ref: str,
     driver_handle: str,
     attachment_paths: list[Path] | None = None,
+    attachment_blobs: list[tuple[str, bytes, str]] | None = None,
     load_source: str | None = None,
     negotiation_id: int | None = None,
 ) -> bool:
@@ -224,6 +255,7 @@ async def send_outbound_email(
         subject=subject,
         body=body,
         attachment_paths=attachment_paths,
+        attachment_blobs=attachment_blobs,
         load_source=load_source,
         negotiation_id=negotiation_id,
     )

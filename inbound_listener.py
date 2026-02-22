@@ -200,6 +200,26 @@ def _route_and_store(msg: EmailMessage) -> bool:
     routing_negotiation = extract_negotiation_id_from_message(msg, email_domain=email_domain)
     fallback_subject_load_ref = extract_load_ref_from_subject(inbound_subject)
 
+    # Detect conflicting routing signals between plus-tag and claimed negotiation id.
+    # Plus-tag is always authoritative (Layer 1). This log fires when a claimed id
+    # from [GCD:x] subject token or X-GCD-Negotiation-ID header disagrees with it.
+    # Normal broker replies cannot produce this — it indicates a malformed or forged email.
+    if routing_negotiation and routing:
+        plus_token = (routing.get("load_ref") or "")
+        if plus_token.isdigit():
+            plus_id = int(plus_token)
+            claimed_id = int(routing_negotiation["negotiation_id"])
+            if plus_id != claimed_id:
+                logging.warning(
+                    "conflicting_routing_ids: plus_tag=%d claimed=%d layer=%s "
+                    "from=%s subject=%s",
+                    plus_id,
+                    claimed_id,
+                    routing_negotiation.get("layer"),
+                    _redact_email_value(inbound_from),
+                    inbound_subject[:80],
+                )
+
     with SessionLocal() as db:
         driver: Driver | None = None
         load: Load | None = None
