@@ -1233,7 +1233,7 @@ async def review_rate_con(
         .first()
     )
     if not negotiation or not negotiation.rate_con_path:
-        return RedirectResponse(url=f"/drivers/dashboard?email={selected_driver.email}", status_code=302)
+        return RedirectResponse(url="/drivers/dashboard", status_code=302)
 
     return templates.TemplateResponse(
         "drivers/rate_con_sign.html",
@@ -1248,15 +1248,12 @@ async def review_rate_con(
 @app.get("/drivers/dashboard")
 async def driver_dashboard(
     request: Request,
-    email: str | None = None,
     assigned_handle: str | None = None,
     db: Session = Depends(get_db),
 ):
-    selected_driver: Driver | None = None
-    if email:
-        selected_driver = db.query(Driver).filter(Driver.email == email.strip().lower()).first()
+    selected_driver = _session_driver(request, db)
     if not selected_driver:
-        selected_driver = db.query(Driver).order_by(Driver.created_at.desc()).first()
+        return RedirectResponse(url="/start", status_code=302)
 
     gate_redirect = _onboarding_gate_redirect(selected_driver)
     if gate_redirect:
@@ -1277,6 +1274,24 @@ async def driver_dashboard(
         "missing_labels": ["W-9", "COI", "MC Auth"],
     }
 
+    scout_activity: list = []
+    if selected_driver:
+        try:
+            rows = db.execute(
+                text("""
+                    SELECT l.id, l.ref_id, l.origin, l.destination, l.price, s.next_step, s.created_at
+                    FROM public.scout_ingest_log s
+                    JOIN public.loads l ON l.id = s.load_id
+                    WHERE s.driver_id = :driver_id
+                    ORDER BY s.created_at DESC
+                    LIMIT 5
+                """),
+                {"driver_id": selected_driver.id},
+            ).mappings().all()
+            scout_activity = [dict(r) for r in rows]
+        except Exception:
+            pass
+
     return templates.TemplateResponse(
         "drivers/dashboard.html",
         {
@@ -1293,6 +1308,7 @@ async def driver_dashboard(
             "assigned_handle": assigned_handle or dispatch_handle,
             "packet_readiness": packet_readiness,
             "user": selected_driver,
+            "scout_activity": scout_activity,
         },
     )
 
@@ -1300,14 +1316,11 @@ async def driver_dashboard(
 @app.get("/drivers/uploads")
 async def driver_uploads_page(
     request: Request,
-    email: str | None = None,
     db: Session = Depends(get_db),
 ):
-    selected_driver: Driver | None = None
-    if email:
-        selected_driver = db.query(Driver).filter(Driver.email == email.strip().lower()).first()
+    selected_driver = _session_driver(request, db)
     if not selected_driver:
-        selected_driver = db.query(Driver).order_by(Driver.created_at.desc()).first()
+        return RedirectResponse(url="/start", status_code=302)
 
     gate_redirect = _onboarding_gate_redirect(selected_driver)
     if gate_redirect:
@@ -1329,16 +1342,13 @@ async def driver_uploads_page(
 @app.get("/drivers/gcdtraining")
 async def driver_gcd_training_page(
     request: Request,
-    email: str | None = None,
     db: Session = Depends(get_db),
 ):
-    selected_driver: Driver | None = None
-    if email:
-        selected_driver = db.query(Driver).filter(Driver.email == email.strip().lower()).first()
+    selected_driver = _session_driver(request, db)
     if not selected_driver:
-        selected_driver = db.query(Driver).order_by(Driver.created_at.desc()).first()
+        return RedirectResponse(url="/start", status_code=302)
 
-    balance = float(selected_driver.balance) if selected_driver else 25.0
+    balance = float(selected_driver.balance)
 
     return templates.TemplateResponse(
         "drivers/gcdtraining.html",
@@ -1376,13 +1386,13 @@ async def get_unread_count(
 
 @app.post("/api/notifications/mark-read")
 async def mark_notifications_read(
-    email: str,
+    request: Request,
     negotiation_id: int | None = None,
     db: Session = Depends(get_db),
 ):
-    selected_driver = db.query(Driver).filter(Driver.email == email.strip().lower()).first()
+    selected_driver = _session_driver(request, db)
     if not selected_driver:
-        return {"updated": 0}
+        return JSONResponse(status_code=401, content={"updated": 0, "message": "auth_required"})
 
     query = (
         db.query(Message)

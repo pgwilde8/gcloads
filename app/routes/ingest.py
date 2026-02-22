@@ -6,6 +6,7 @@ from typing import Any
 
 from fastapi import APIRouter, BackgroundTasks, Body, Depends, Header, HTTPException, status
 from pydantic import BaseModel, Field
+from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from app.database import get_db
@@ -349,6 +350,21 @@ async def ingest_load(
             next_step, load.id, driver.id, match["score"],
         )
 
+    broker_phone = triage.get("phone") or contact_info.get("phone")
+
+    try:
+        db.execute(
+            text("""
+                INSERT INTO public.scout_ingest_log (driver_id, load_id, next_step)
+                VALUES (:driver_id, :load_id, :next_step)
+            """),
+            {"driver_id": driver.id, "load_id": load.id, "next_step": next_step},
+        )
+        db.commit()
+    except Exception as e:
+        logger.warning("scout_ingest_log insert failed: %s", e)
+        db.rollback()
+
     return {
         "status": "success",
         "load_id": load.id,
@@ -362,7 +378,7 @@ async def ingest_load(
         "queued_negotiation_id": queued_negotiation_id,
         "contact_mode": contact_mode,
         "broker_email": broker_email,
-        "broker_phone": triage.get("phone"),
+        "broker_phone": broker_phone,
         "standing": triage.get("standing"),
         "identity_used": f"{identity}@{os.getenv('EMAIL_DOMAIN', 'gcdloads.com')}",
     }

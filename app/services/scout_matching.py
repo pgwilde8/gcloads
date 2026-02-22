@@ -107,22 +107,43 @@ def _extract_rpm(load: Load, metadata: dict[str, Any]) -> Decimal | None:
 
 # ── Region matching ────────────────────────────────────────────────────────────
 
+# Tokens to skip: too generic, cause false positives (e.g. "New" matches "New Jersey")
+_SKIP_TOKENS: frozenset = frozenset({"new", "the", "a", "an", "or", "and", "of"})
+_MIN_TOKEN_LEN = 2
+
+
 def _region_matches(load_field: str | None, preference: str | None) -> bool:
-    """Case-insensitive substring match on the first token of the preference.
+    """Case-insensitive match: any meaningful token from preference appears in load_field.
+
+    Normalization:
+      - Replace commas/slashes with spaces, then split into tokens
+      - Skip tokens: length < 2, or in _SKIP_TOKENS (avoids "New" from "New Jersey / PA")
+      - Match = true if any meaningful token is a substring of load_field
 
     Examples:
-      preference="Atlanta GA, Southeast" -> first token "Atlanta GA" -> check if
-      load_field contains "atlanta" (case-insensitive).
+      preference="New Jersey / PA" -> tokens ["jersey", "pa"] -> match if load has either
+      preference="Northeast" -> tokens ["northeast"] -> match if load contains "northeast"
+      preference="Atlanta, Southeast" -> tokens ["atlanta", "southeast"] -> match if either
     """
     if not preference:
         return True  # no preference = match anything
     if not load_field:
         return False
-    # Use only the first comma-separated token for matching
-    token = preference.split(",")[0].strip().lower()
-    if not token:
-        return True
-    return token in load_field.lower()
+
+    load_lower = load_field.lower()
+    # Normalize: commas and slashes -> spaces, then split
+    normalized = re.sub(r"[,/]+", " ", preference).strip()
+    tokens = normalized.split()
+
+    for token in tokens:
+        t = token.lower().strip()
+        if len(t) < _MIN_TOKEN_LEN or t in _SKIP_TOKENS:
+            continue
+        if t in load_lower:
+            return True
+
+    # No meaningful token matched
+    return False
 
 
 # ── Main scoring function ──────────────────────────────────────────────────────

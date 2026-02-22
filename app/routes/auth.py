@@ -563,7 +563,7 @@ async def onboarding_factoring_submit(
         selected_driver.onboarding_status = "active"
         db.add(selected_driver)
         db.commit()
-        return RedirectResponse(url=f"/drivers/dashboard?email={selected_driver.email}", status_code=302)
+        return RedirectResponse(url="/drivers/dashboard", status_code=302)
 
     if choice == "no":
         selected_driver.factor_type = "needs_factor"

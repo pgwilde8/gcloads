@@ -83,12 +83,19 @@ class TestRegionMatches:
         assert _region_matches("Atlanta, GA", "atlanta") is True
         assert _region_matches("ATLANTA, GA", "Atlanta") is True
 
-    def test_first_token_of_comma_list(self):
-        # "Atlanta, Southeast" → first token "Atlanta" → matches "Atlanta, GA"
+    def test_multi_token_any_matches(self):
+        # "Atlanta, Southeast" → tokens ["atlanta", "southeast"] → "atlanta" in "Atlanta, GA"
         assert _region_matches("Atlanta, GA", "Atlanta, Southeast") is True
+        # "New Jersey / PA" → tokens ["jersey", "pa"] (skip "new") → "jersey" in "New Jersey"
+        assert _region_matches("New Jersey, NJ", "New Jersey / PA") is True
 
     def test_no_match(self):
         assert _region_matches("Dallas, TX", "Atlanta") is False
+
+    def test_new_footgun_avoided(self):
+        # "New" alone is skipped; "New York" -> "York" matches, "New" does not match "Newark" by itself
+        assert _region_matches("Newark, NJ", "New") is False  # "New" skipped, no other token
+        assert _region_matches("New York, NY", "New York") is True  # "york" matches
 
 
 # ── _extract_rpm ───────────────────────────────────────────────────────────────

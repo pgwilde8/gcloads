@@ -133,6 +133,51 @@
             </div>
         </section>
 
+        <!-- Recent Scout Activity -->
+        {% if scout_activity %}
+        <section>
+            <h3 class="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-1 mb-3">Recent Scout Activity</h3>
+            <div class="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden">
+                <div class="divide-y divide-slate-800">
+                    {% for item in scout_activity %}
+                    <div class="flex items-center justify-between gap-4 px-4 py-3 hover:bg-slate-800/40 transition">
+                        <div class="min-w-0 flex-1">
+                            <p class="text-white font-bold text-sm truncate">
+                                {{ item.origin or '—' }} <span class="text-slate-600">→</span> {{ item.destination or '—' }}
+                            </p>
+                            <p class="text-slate-500 text-xs mt-0.5 flex items-center gap-2">
+                                {% if item.price %}<span class="text-green-400">{{ item.price }}</span>{% endif %}
+                                <span>{{ item.created_at.strftime('%b %d, %I:%M %p') if item.created_at else '' }}</span>
+                            </p>
+                        </div>
+                        {% set step = item.next_step %}
+                        {% if step == 'AUTO_SENT' %}
+                        <span class="shrink-0 bg-green-500/10 border border-green-500/30 text-green-400 text-[10px] font-black uppercase tracking-wider px-2.5 py-1 rounded-lg">Auto-sent</span>
+                        {% elif step == 'NEEDS_APPROVAL' %}
+                        <a href="/drivers/scout-loads?tab=queued" class="shrink-0 bg-amber-500/10 border border-amber-500/30 text-amber-400 text-[10px] font-black uppercase tracking-wider px-2.5 py-1 rounded-lg hover:bg-amber-500/20 transition">Queued</a>
+                        {% elif step == 'SAVED_ONLY' %}
+                        <span class="shrink-0 bg-slate-700/60 border border-slate-600 text-slate-400 text-[10px] font-black uppercase tracking-wider px-2.5 py-1 rounded-lg">Saved</span>
+                        {% elif step in ('CALL_REQUIRED', 'MISSING_BROKER_EMAIL') %}
+                        <span class="shrink-0 bg-blue-500/10 border border-blue-500/30 text-blue-400 text-[10px] font-black uppercase tracking-wider px-2.5 py-1 rounded-lg">{{ 'Call required' if step == 'CALL_REQUIRED' else 'Needs enrichment' }}</span>
+                        {% elif step == 'BROKER_BLOCKED' %}
+                        <span class="shrink-0 bg-red-500/10 border border-red-500/30 text-red-400 text-[10px] font-black uppercase tracking-wider px-2.5 py-1 rounded-lg">Blocked</span>
+                        {% elif step == 'SETUP_REQUIRED' %}
+                        <a href="/drivers/scout-setup" class="shrink-0 bg-amber-500/10 border border-amber-500/30 text-amber-400 text-[10px] font-black uppercase tracking-wider px-2.5 py-1 rounded-lg hover:bg-amber-500/20 transition">Setup</a>
+                        {% elif step == 'SCOUT_PAUSED' %}
+                        <span class="shrink-0 bg-slate-700/60 border border-slate-600 text-slate-500 text-[10px] font-black uppercase tracking-wider px-2.5 py-1 rounded-lg">Paused</span>
+                        {% else %}
+                        <span class="shrink-0 bg-slate-700/60 border border-slate-600 text-slate-400 text-[10px] font-black uppercase tracking-wider px-2.5 py-1 rounded-lg">{{ step }}</span>
+                        {% endif %}
+                    </div>
+                    {% endfor %}
+                </div>
+                <a href="/drivers/scout-loads" class="block text-center text-slate-500 hover:text-white text-xs font-bold py-3 border-t border-slate-800 transition">
+                    View all Scout loads →
+                </a>
+            </div>
+        </section>
+        {% endif %}
+
         <!-- Active Negotiations -->
         <section>
             <div class="flex items-center justify-between ml-1 mb-3">

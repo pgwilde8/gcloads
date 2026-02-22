@@ -144,18 +144,42 @@ const injectButton = () => {
                     return;
                 }
 
-                if (result.email_sent === true) {
-                    setTransientState(btn, "✅ LOAD SECURED", "#059669", 2200);
-                    return;
-                }
+                const nextStep = result.next_step || "";
+                const missed = (result.missed || []).join(", ");
+                const hasPhone = !!(result.broker_phone || "").trim();
 
-                if (result.email_sent === false) {
-                    const reason = (result.email_skipped_reason || "skipped").replace(/_/g, " ");
-                    setTransientState(btn, `⚠️ QUEUED (${reason})`, "#b45309", 3200);
-                    return;
-                }
+                const buttonLabel = (() => {
+                    switch (nextStep) {
+                        case "AUTO_SENT":
+                            return "✅ Auto-sent (perfect match)";
+                        case "NEEDS_APPROVAL":
+                            return missed ? `⚠️ Queued (missed ${missed})` : "⚠️ Queued (needs approval)";
+                        case "SAVED_ONLY":
+                            return missed ? `📋 Saved (missed ${missed})` : "📋 Saved";
+                        case "CALL_REQUIRED":
+                            return hasPhone ? "📞 Call broker" : "📞 Call required (no phone)";
+                        case "MISSING_BROKER_EMAIL":
+                            return hasPhone ? "📞 Call broker" : "🔧 Needs enrichment";
+                        case "BROKER_BLOCKED":
+                            setBlockedState(btn, standing.note || "Broker blocked");
+                            return null;
+                        case "SETUP_REQUIRED":
+                            return "⚙️ Set up Scout first";
+                        case "SCOUT_PAUSED":
+                            return "⏸️ Scout paused";
+                        default:
+                            return "✅ Load secured";
+                    }
+                })();
 
-                setTransientState(btn, "LOAD SECURED!", "#059669", 2200);
+                if (buttonLabel === null) return;
+
+                const color = ["AUTO_SENT", "NEEDS_APPROVAL"].includes(nextStep)
+                    ? (nextStep === "AUTO_SENT" ? "#059669" : "#b45309")
+                    : ["CALL_REQUIRED", "MISSING_BROKER_EMAIL"].includes(nextStep)
+                        ? (hasPhone ? "#2563eb" : "#d97706")
+                        : "#059669";
+                setTransientState(btn, buttonLabel, color, 3500);
             } else {
                 setTransientState(btn, `ERROR ${response.status}`, "#ef4444", 3200);
             }
