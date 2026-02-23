@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Active Negotiations | GCD Command</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/htmx.org@1.9.10"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        body { background-color: #020617; }
+    </style>
+</head>
+<body class="text-slate-200 font-sans pb-24">
+
+    <header class="p-6 bg-slate-900 border-b border-slate-800 sticky top-0 z-50 shadow-2xl">
+        <div class="max-w-7xl mx-auto flex flex-col md:flex-row justify-between items-center gap-4">
+            <div class="flex items-center gap-4">
+                <div class="bg-blue-600 p-3 rounded-2xl shadow-lg shadow-blue-500/20">
+                    <i class="fas fa-comments text-white text-xl"></i>
+                </div>
+                <div>
+                    <h1 class="text-lg font-black tracking-tighter text-white">Active <span class="text-blue-500">Negotiations</span></h1>
+                    <p class="text-[9px] font-black text-slate-500 uppercase tracking-widest mb-1">Broker conversations in progress</p>
+                    <p class="text-[10px] text-slate-500">MC: {{ trucker.mc_number }}</p>
+                </div>
+            </div>
+            <div class="flex items-center gap-4">
+                <a href="/drivers/dashboard" class="text-slate-400 hover:text-white text-xs font-bold transition flex items-center gap-2">
+                    <i class="fas fa-home"></i> Dashboard
+                </a>
+                <a href="/drivers/load-board" class="bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold px-4 py-2 rounded-xl transition">
+                    Open Load Board
+                </a>
+            </div>
+        </div>
+    </header>
+
+    <main class="max-w-7xl mx-auto p-6">
+        <section>
+            <div class="flex items-center justify-between ml-1 mb-3">
+                <h3 class="text-[10px] font-black text-slate-500 uppercase tracking-widest">All Active Negotiations</h3>
+                <a href="/drivers/dashboard"
+                   class="flex items-center gap-2 bg-slate-800 hover:bg-green-600/20 border border-slate-700 hover:border-green-500/50 text-white px-4 py-2 rounded-xl transition-all group">
+                    <i class="fas fa-sliders text-green-500 group-hover:scale-110 transition-transform"></i>
+                    <span class="text-xs font-black uppercase tracking-tight">Set Floor Rates</span>
+                </a>
+            </div>
+            <div id="active-missions-container"
+                 hx-get="/drivers/dashboard-active-loads?limit=25"
+                 hx-trigger="load, every 30s, dashboardActiveLoadsRefresh from:body"
+                 hx-swap="innerHTML"
+                 class="min-h-[320px]">
+                <div class="bg-slate-900 border border-slate-800 rounded-2xl p-12 text-center">
+                    <div class="bg-slate-800 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4 text-slate-600">
+                        <i class="fas fa-radar text-2xl"></i>
+                    </div>
+                    <h4 class="text-white font-bold">Loading negotiations…</h4>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <nav class="fixed bottom-6 left-1/2 -translate-x-1/2 bg-slate-900/80 backdrop-blur-xl border border-slate-800 p-2 rounded-2xl shadow-2xl z-50">
+        <div class="flex items-center gap-1">
+            <a href="/drivers/dashboard" class="text-slate-400 hover:text-white px-6 py-2 rounded-xl text-xs font-bold transition flex items-center gap-2">
+                <i class="fas fa-home"></i> Dashboard
+            </a>
+            <a href="/drivers/scout-loads" class="text-slate-400 hover:text-white px-6 py-2 rounded-xl text-xs font-bold transition flex items-center gap-2">
+                <i class="fas fa-satellite-dish"></i> Scout Loads
+            </a>
+            <a href="/drivers/scout-setup" class="text-slate-400 hover:text-white px-6 py-2 rounded-xl text-xs font-bold transition flex items-center gap-2">
+                <i class="fas fa-sliders"></i> Scout Setup
+            </a>
+            <a href="/drivers/load-board" class="text-slate-400 hover:text-white px-6 py-2 rounded-xl text-xs font-bold transition flex items-center gap-2">
+                <i class="fas fa-radar"></i> Load Board
+            </a>
+            <span class="bg-blue-600 text-white px-6 py-2 rounded-xl text-xs font-bold flex items-center gap-2">
+                <i class="fas fa-comments"></i> Negotiations
+            </span>
+            <a href="/drivers/uploads" class="text-slate-400 hover:text-white px-6 py-2 rounded-xl text-xs font-bold transition flex items-center gap-2">
+                <i class="fas fa-file-upload"></i> Paperwork
+            </a>
+            <button type="button" onclick="document.getElementById('help-drawer').classList.remove('translate-x-full')" class="text-slate-400 hover:text-white px-6 py-2 rounded-xl text-xs font-bold transition flex items-center gap-2">
+                <i class="fas fa-question-circle"></i> Help
+            </button>
+        </div>
+    </nav>
+
+    {% include "drivers/partials/help_drawer.html" %}
+
+    <script>
+        async function runRetrySecureEmail(negotiationId, buttonEl) {
+            if (!negotiationId) return;
+            const previousText = buttonEl ? buttonEl.textContent : '';
+            if (buttonEl) { buttonEl.disabled = true; buttonEl.textContent = 'Retrying...'; }
+            try {
+                const body = new URLSearchParams({ negotiation_id: String(negotiationId) });
+                const response = await fetch('/api/negotiations/retry-secure-email', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'Accept': 'application/json' }, body: body.toString() });
+                const data = await response.json();
+                if (!response.ok || data.status !== 'ok') { alert(`Retry failed: ${data.message || 'retry_failed_check_smtp_logs'}`); return; }
+                alert('Retry successful. If broker cannot find the email, ask them to check Spam/Junk.');
+                if (window.htmx) window.htmx.trigger(document.body, 'dashboardActiveLoadsRefresh');
+            } catch (_) { alert('Retry failed: network error'); }
+            finally { if (buttonEl) { buttonEl.disabled = false; buttonEl.textContent = previousText; } }
+        }
+        async function runSecureLoad(negotiationId, buttonEl) {
+            if (!negotiationId) return;
+            const previousText = buttonEl ? buttonEl.textContent : '';
+            if (buttonEl) { buttonEl.disabled = true; buttonEl.textContent = 'Securing...'; }
+            try {
+                const body = new URLSearchParams({ negotiation_id: String(negotiationId) });
+                const response = await fetch('/api/negotiations/secure-load', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'Accept': 'application/json' }, body: body.toString() });
+                const data = await response.json();
+                if (!response.ok || data.status !== 'ok') { alert(`Secure failed: ${data.message || 'secure_load_failed'}`); return; }
+                if (window.htmx) window.htmx.trigger(document.body, 'dashboardActiveLoadsRefresh');
+            } catch (_) { alert('Secure failed: network error'); }
+            finally { if (buttonEl) { buttonEl.disabled = false; buttonEl.textContent = previousText; } }
+        }
+        async function runStopAiManual(negotiationId, buttonEl) {
+            if (!negotiationId) return;
+            const previousText = buttonEl ? buttonEl.textContent : '';
+            if (buttonEl) { buttonEl.disabled = true; buttonEl.textContent = 'Switching...'; }
+            try {
+                const body = new URLSearchParams({ negotiation_id: String(negotiationId) });
+                const response = await fetch('/api/negotiations/manual-mode', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'Accept': 'application/json' }, body: body.toString() });
+                const data = await response.json();
+                if (!response.ok || data.status !== 'ok') { alert(`Stop AI failed: ${data.message || 'manual_mode_failed'}`); return; }
+                if (window.htmx) window.htmx.trigger(document.body, 'dashboardActiveLoadsRefresh');
+            } catch (_) { alert('Stop AI failed: network error'); }
+            finally { if (buttonEl) { buttonEl.disabled = false; buttonEl.textContent = previousText; } }
+        }
+        async function runQuickReply(action, negotiationId, buttonEl) {
+            if (!negotiationId) return;
+            const previousText = buttonEl ? buttonEl.textContent : '';
+            if (buttonEl) { buttonEl.disabled = true; buttonEl.textContent = 'Sending...'; }
+            try {
+                const body = new URLSearchParams({ action, negotiation_id: String(negotiationId) });
+                const response = await fetch('/api/negotiations/quick-reply', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'Accept': 'application/json' }, body: body.toString() });
+                const data = await response.json();
+                if (!response.ok || data.status !== 'ok') { alert(`Quick reply failed: ${data.message || 'quick_reply_failed'}`); return; }
+                if (window.htmx) window.htmx.trigger(document.body, 'dashboardActiveLoadsRefresh');
+            } catch (_) { alert('Quick reply failed: network error'); }
+            finally { if (buttonEl) { buttonEl.disabled = false; buttonEl.textContent = previousText; } }
+        }
+        async function runComposePacket(negotiationId, buttonEl) {
+            if (!negotiationId) return;
+            const target = document.getElementById(`compose-status-${negotiationId}`);
+            const previousText = buttonEl ? buttonEl.textContent : '';
+            if (buttonEl) { buttonEl.disabled = true; buttonEl.textContent = 'Building...'; }
+            if (target) { target.className = 'text-[11px] mt-2 text-slate-400'; target.textContent = 'Composing packet...'; }
+            try {
+                const response = await fetch(`/api/negotiations/${negotiationId}/compose-packet`, { method: 'POST', headers: { 'Accept': 'application/json' } });
+                const data = await response.json();
+                if (!response.ok || data.status !== 'ok') {
+                    const missing = (data.missing_docs || []).join(', ');
+                    const message = missing || data.message || 'packet_compose_failed';
+                    if (target) { target.className = 'text-[11px] mt-2 text-amber-400'; target.innerHTML = `Packet not ready: ${message}. <a href="/onboarding/step3" class="text-amber-300 underline">Upload docs</a>`; }
+                    return;
+                }
+                if (target) {
+                    target.className = 'text-[11px] mt-2 text-emerald-400';
+                    const labelMap = { INSURANCE: 'COI', AUTHORITY: 'MC Auth', W9: 'W-9', BOL_PACKET: 'BOL Packet', RATECON: 'RateCon' };
+                    const orderMap = { 'W-9': 1, COI: 2, 'MC Auth': 3, 'BOL Packet': 4, RateCon: 5 };
+                    const includedDocs = (data.included_docs || []).map((doc) => labelMap[doc] || doc).sort((a, b) => (orderMap[a] || 99) - (orderMap[b] || 99) || a.localeCompare(b)).join(', ');
+                    const packetUrl = data.bol_packet_url || data.presigned_url;
+                    if (packetUrl) { target.innerHTML = `Packet ready (${includedDocs || 'docs included'}). <a href="${packetUrl}" target="_blank" rel="noopener" class="underline text-emerald-300">Open packet</a>`; }
+                    else { target.textContent = `Packet ready (${includedDocs || 'docs included'}): ${data.bol_packet_key || data.packet_key || 'generated'}`; }
+                }
+            } catch (_) { if (target) { target.className = 'text-[11px] mt-2 text-amber-400'; target.textContent = 'Packet compose failed: network error'; } }
+            finally { if (buttonEl) { buttonEl.disabled = false; buttonEl.textContent = previousText; } }
+        }
+        async function runApproveDraft(negotiationId, buttonEl) {
+            if (!negotiationId) return;
+            const previousText = buttonEl ? buttonEl.textContent : '';
+            if (buttonEl) { buttonEl.disabled = true; buttonEl.textContent = 'Sending...'; }
+            try {
+                const body = new URLSearchParams({ negotiation_id: String(negotiationId) });
+                const response = await fetch('/api/negotiations/approve-draft', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'Accept': 'application/json' }, body: body.toString() });
+                const data = await response.json();
+                if (!response.ok || data.status !== 'ok') { alert(`Approve failed: ${data.message || 'approve_draft_failed'}`); return; }
+                if (window.htmx) window.htmx.trigger(document.body, 'dashboardActiveLoadsRefresh');
+            } catch (_) { alert('Approve failed: network error'); }
+            finally { if (buttonEl) { buttonEl.disabled = false; buttonEl.textContent = previousText; } }
+        }
+    </script>
+
+</body>
+</html>

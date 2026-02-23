@@ -56,7 +56,7 @@ class Settings(BaseSettings):
     database_url: str | None = None
     scout_api_key: str = ""
     admin_enrich_password: str = ""
-    session_secret_key: str = Field(default="change-this-session-secret", validation_alias="SECRET_KEY")
+    session_secret_key: str = Field(default="change-this-session-secret", validation_alias="SESSION_SECRET_KEY")
     session_cookie_domain: str = ""
     packet_storage_root: str = "/srv/gcd-data/packets"
     packet_max_total_mb: int = 5
@@ -577,9 +577,11 @@ async def admin_enrich_save(
 @app.get("/drivers/dashboard-active-loads")
 async def get_active_negotiations(
     request: Request,
+    limit: int = 5,
     db: Session = Depends(get_db),
 ):
     selected_driver = _session_driver(request, db)
+    limit = min(max(1, limit), 50)
 
     cards: list[dict[str, object]] = []
     if selected_driver:
@@ -593,7 +595,7 @@ async def get_active_negotiations(
                 ),
                 Negotiation.created_at.desc(),
             )
-            .limit(5)
+            .limit(limit)
             .all()
         )
 
@@ -1309,6 +1311,36 @@ async def driver_dashboard(
             "packet_readiness": packet_readiness,
             "user": selected_driver,
             "scout_activity": scout_activity,
+        },
+    )
+
+
+@app.get("/drivers/negotiations")
+async def driver_negotiations(
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    selected_driver = _session_driver(request, db)
+    if not selected_driver:
+        return RedirectResponse(url="/start", status_code=302)
+
+    gate_redirect = _onboarding_gate_redirect(selected_driver)
+    if gate_redirect:
+        return RedirectResponse(url=gate_redirect, status_code=302)
+
+    display_name = selected_driver.display_name if selected_driver else "scout"
+    mc_number = selected_driver.mc_number if selected_driver else "MC-PENDING"
+    dispatch_handle = _preferred_dispatch_handle(selected_driver)
+
+    return templates.TemplateResponse(
+        "drivers/negotiations.html",
+        {
+            "request": request,
+            "trucker": {
+                "display_name": display_name,
+                "dispatch_handle": dispatch_handle,
+                "mc_number": mc_number,
+            },
         },
     )
 

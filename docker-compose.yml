@@ -23,7 +23,7 @@ services:
       - /srv/gcd-data:/srv/gcd-data
     environment:
       APP_ENV: ${APP_ENV}
-      SECRET_KEY: ${SECRET_KEY}
+      SESSION_SECRET_KEY: ${SESSION_SECRET_KEY}
       PROJECT_PORT: ${PROJECT_PORT}
       ADMIN_ENRICH_PASSWORD: ${ADMIN_ENRICH_PASSWORD}
       ADMIN_TOKEN: ${ADMIN_TOKEN}
@@ -71,7 +71,7 @@ services:
       - /srv/gcd-data:/srv/gcd-data
     environment:
       APP_ENV: ${APP_ENV}
-      SECRET_KEY: ${SECRET_KEY}
+      SESSION_SECRET_KEY: ${SESSION_SECRET_KEY}
       PROJECT_PORT: ${PROJECT_PORT}
       ADMIN_ENRICH_PASSWORD: ${ADMIN_ENRICH_PASSWORD}
       ADMIN_TOKEN: ${ADMIN_TOKEN}

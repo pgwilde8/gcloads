@@ -27,6 +27,8 @@
         }
         .fuel-bar { transition: width 1.5s ease-in-out; }
         body { background-color: #020617; } /* Slate-950 */
+        details[open] summary .details-chevron { transform: rotate(180deg); }
+        .details-chevron { transition: transform 0.2s ease; }
     </style>
 </head>
 <body class="text-slate-200 font-sans pb-24" style="--fuel-pct: {{ (((balance|default(0)) / 50) * 100)|round(0) }}">
@@ -76,178 +78,155 @@
         </div>
     </header>
 
-    <main class="max-w-7xl mx-auto p-6 space-y-8">
-        <!-- Card 1: Scout Picked Loads (jobs the extension has picked) -->
-        <section class="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <a href="/drivers/scout-loads" class="block bg-slate-900 border border-slate-800 rounded-2xl p-6 hover:border-blue-500/40 transition group">
-                <div class="flex items-start gap-4">
-                    <div class="bg-blue-600/20 p-3 rounded-xl group-hover:bg-blue-600/30 transition">
-                        <i class="fas fa-satellite-dish text-blue-400 text-xl"></i>
+    <main class="max-w-7xl mx-auto p-6">
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
+            <!-- Zone 1: Find Loads -->
+            <section class="flex flex-col gap-4">
+                <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                    <div>
+                        <h2 class="text-xs font-black text-white uppercase tracking-wider">1. Find Loads</h2>
+                        <p class="text-slate-500 text-[11px] mt-1">Use Scout to discover and ingest loads from your load boards.</p>
                     </div>
-                    <div class="flex-1 min-w-0">
-                        <h3 class="text-white font-bold text-lg mb-1">Scout Picked Loads</h3>
-                        <p class="text-slate-400 text-sm leading-relaxed">Jobs the Chrome extension has picked from DAT / TruckSmarter. View and deploy from the Load Board.</p>
-                        <div class="flex items-center gap-4 mt-4">
-                            <span class="text-blue-400 font-bold text-sm group-hover:text-blue-300">View Loads →</span>
-                            <a href="/drivers/scout-setup"
-                               onclick="event.stopPropagation()"
-                               class="text-slate-500 hover:text-slate-300 font-bold text-xs flex items-center gap-1 transition">
-                                <i class="fas fa-sliders text-[10px]"></i> Configure Scout
-                            </a>
-                        </div>
-                    </div>
-                </div>
-            </a>
-
-            <!-- Card 2: After you win → Manage / Paperwork -->
-            <a href="/drivers/uploads" class="block bg-slate-900 border border-slate-800 rounded-2xl p-6 hover:border-green-500/40 transition group">
-                <div class="flex items-start gap-4">
-                    <div class="bg-green-600/20 p-3 rounded-xl group-hover:bg-green-600/30 transition">
-                        <i class="fas fa-file-invoice text-green-400 text-xl"></i>
-                    </div>
-                    <div class="flex-1 min-w-0">
-                        <h3 class="text-white font-bold text-lg mb-1">After you win a load</h3>
-                        <p class="text-slate-400 text-sm leading-relaxed">Use <strong class="text-slate-300">Manage</strong> (on the load card or under Paperwork) to get funded: upload BOL, create invoice, send packet to Century Finance.</p>
-                        <span class="inline-block mt-4 text-green-400 font-bold text-sm group-hover:text-green-300">Go to Paperwork →</span>
-                    </div>
-                </div>
-            </a>
-        </section>
-
-        {% include "drivers/partials/packet_readiness_panel.html" %}
-
-
-
-        <!-- Scout Status -->
-        <section>
-            <h3 class="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-1 mb-3">Scout Status</h3>
-            <div id="scout-status-container"
-                 class="bg-slate-900 border border-slate-800 rounded-2xl p-6"
-                 hx-get="/drivers/scout-status"
-                 hx-trigger="load, every 60s"
-                 hx-swap="innerHTML">
-                <div class="animate-pulse flex flex-col space-y-3">
-                    <div class="h-4 bg-slate-800 rounded w-2/3"></div>
-                    <div class="h-8 bg-slate-800 rounded w-full"></div>
-                </div>
-            </div>
-        </section>
-
-        <!-- Recent Scout Activity -->
-        {% if scout_activity %}
-        <section>
-            <h3 class="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-1 mb-3">Recent Scout Activity</h3>
-            <div class="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden">
-                <div class="divide-y divide-slate-800">
-                    {% for item in scout_activity %}
-                    <div class="flex items-center justify-between gap-4 px-4 py-3 hover:bg-slate-800/40 transition">
-                        <div class="min-w-0 flex-1">
-                            <p class="text-white font-bold text-sm truncate">
-                                {{ item.origin or '—' }} <span class="text-slate-600">→</span> {{ item.destination or '—' }}
-                            </p>
-                            <p class="text-slate-500 text-xs mt-0.5 flex items-center gap-2">
-                                {% if item.price %}<span class="text-green-400">{{ item.price }}</span>{% endif %}
-                                <span>{{ item.created_at.strftime('%b %d, %I:%M %p') if item.created_at else '' }}</span>
-                            </p>
-                        </div>
-                        {% set step = item.next_step %}
-                        {% if step == 'AUTO_SENT' %}
-                        <span class="shrink-0 bg-green-500/10 border border-green-500/30 text-green-400 text-[10px] font-black uppercase tracking-wider px-2.5 py-1 rounded-lg">Auto-sent</span>
-                        {% elif step == 'NEEDS_APPROVAL' %}
-                        <a href="/drivers/scout-loads?tab=queued" class="shrink-0 bg-amber-500/10 border border-amber-500/30 text-amber-400 text-[10px] font-black uppercase tracking-wider px-2.5 py-1 rounded-lg hover:bg-amber-500/20 transition">Queued</a>
-                        {% elif step == 'SAVED_ONLY' %}
-                        <span class="shrink-0 bg-slate-700/60 border border-slate-600 text-slate-400 text-[10px] font-black uppercase tracking-wider px-2.5 py-1 rounded-lg">Saved</span>
-                        {% elif step in ('CALL_REQUIRED', 'MISSING_BROKER_EMAIL') %}
-                        <span class="shrink-0 bg-blue-500/10 border border-blue-500/30 text-blue-400 text-[10px] font-black uppercase tracking-wider px-2.5 py-1 rounded-lg">{{ 'Call required' if step == 'CALL_REQUIRED' else 'Needs enrichment' }}</span>
-                        {% elif step == 'BROKER_BLOCKED' %}
-                        <span class="shrink-0 bg-red-500/10 border border-red-500/30 text-red-400 text-[10px] font-black uppercase tracking-wider px-2.5 py-1 rounded-lg">Blocked</span>
-                        {% elif step == 'SETUP_REQUIRED' %}
-                        <a href="/drivers/scout-setup" class="shrink-0 bg-amber-500/10 border border-amber-500/30 text-amber-400 text-[10px] font-black uppercase tracking-wider px-2.5 py-1 rounded-lg hover:bg-amber-500/20 transition">Setup</a>
-                        {% elif step == 'SCOUT_PAUSED' %}
-                        <span class="shrink-0 bg-slate-700/60 border border-slate-600 text-slate-500 text-[10px] font-black uppercase tracking-wider px-2.5 py-1 rounded-lg">Paused</span>
-                        {% else %}
-                        <span class="shrink-0 bg-slate-700/60 border border-slate-600 text-slate-400 text-[10px] font-black uppercase tracking-wider px-2.5 py-1 rounded-lg">{{ step }}</span>
-                        {% endif %}
-                    </div>
-                    {% endfor %}
-                </div>
-                <a href="/drivers/scout-loads" class="block text-center text-slate-500 hover:text-white text-xs font-bold py-3 border-t border-slate-800 transition">
-                    View all Scout loads →
-                </a>
-            </div>
-        </section>
-        {% endif %}
-
-        <!-- Active Negotiations -->
-        <section>
-            <div class="flex items-center justify-between ml-1 mb-3">
-                <h3 class="text-[10px] font-black text-slate-500 uppercase tracking-widest">Active Negotiations</h3>
-                <button onclick="document.getElementById('rate-modal').classList.remove('hidden')"
-                        class="flex items-center gap-2 bg-slate-800 hover:bg-green-600/20 border border-slate-700 hover:border-green-500/50 text-white px-4 py-2 rounded-xl transition-all group">
-                    <i class="fas fa-filter text-green-500 group-hover:scale-110 transition-transform"></i>
-                    <span class="text-xs font-black uppercase tracking-tight">Set Floor Rates</span>
-                </button>
-            </div>
-            <div id="active-missions-container"
-                 hx-get="/drivers/dashboard-active-loads"
-                 hx-trigger="load, every 30s, dashboardActiveLoadsRefresh from:body"
-                 hx-swap="innerHTML"
-                 class="min-h-[320px]">
-                <div class="bg-slate-900 border border-slate-800 rounded-2xl p-12 text-center">
-                    <div class="bg-slate-800 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4 text-slate-600">
-                        <i class="fas fa-radar text-2xl"></i>
-                    </div>
-                    <h4 class="text-white font-bold">Scanning for Opportunities</h4>
-                    <p class="text-slate-500 text-xs mt-2 max-w-xs mx-auto">
-                        Your fuel is ready. Open your load board to deploy Scout and start a negotiation.
-                    </p>
-                    <a href="/drivers/load-board" class="mt-6 inline-block bg-white text-black font-bold text-[10px] px-6 py-3 rounded-full uppercase tracking-tighter hover:bg-blue-500 hover:text-white transition">
-                        Open Load Board
+                    <a href="/drivers/load-board" class="shrink-0 flex items-center gap-2 bg-blue-600 hover:bg-blue-500 text-white text-xs font-black px-4 py-2 rounded-xl transition">
+                        <i class="fas fa-radar"></i> Open Load Board
                     </a>
                 </div>
-            </div>
-        </section>
-        <!-- Automation Fuel (current balance) -->
-        <section>
-            <div class="bg-slate-900 border border-slate-800 rounded-2xl p-6">
-                <div class="flex justify-between items-end mb-2">
-                    <span class="text-[9px] font-black text-slate-500 uppercase tracking-widest">Automation Fuel</span>
-                    <span class="text-xl font-black text-white neon-glow">{{ "%.1f"|format(balance) }} <span class="text-xs text-blue-500">$CANDLE</span></span>
-                </div>
-                <div class="w-full bg-slate-800 h-1.5 rounded-full overflow-hidden">
-                    <div class="bg-blue-500 h-full fuel-bar" style="width: calc(var(--fuel-pct) * 1%)"></div>
-                </div>
-            </div>
-        </section>
-        <!-- Card 3: Automation Fuel Costs -->
-        <section>
-            <div class="bg-slate-900 border border-slate-800 rounded-2xl p-6">
-                <h3 class="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-4 flex items-center gap-2">
-                    <i class="fas fa-gas-pump text-blue-500"></i> Automation Fuel Costs
-                </h3>
-                <div class="grid grid-cols-2 sm:grid-cols-4 gap-4">
-                    <div class="bg-slate-800/50 rounded-xl p-4 border border-slate-700">
-                        <div class="text-slate-400 text-xs uppercase font-bold">Negotiation / Counter</div>
-                        <div class="text-white font-black text-lg mt-1">0.5 <span class="text-blue-500 text-xs">$CANDLE</span></div>
-                    </div>
-                    <div class="bg-slate-800/50 rounded-xl p-4 border border-slate-700">
-                        <div class="text-slate-400 text-xs uppercase font-bold">Voice Escalation</div>
-                        <div class="text-white font-black text-lg mt-1">0.5 <span class="text-blue-500 text-xs">$CANDLE</span></div>
-                    </div>
-                    <div class="bg-slate-800/50 rounded-xl p-4 border border-slate-700">
-                        <div class="text-slate-400 text-xs uppercase font-bold">Factoring Packet</div>
-                        <div class="text-white font-black text-lg mt-1">0.3 <span class="text-blue-500 text-xs">$CANDLE</span></div>
-                    </div>
-                    <div class="bg-slate-800/50 rounded-xl p-4 border border-slate-700">
-                        <div class="text-slate-400 text-xs uppercase font-bold">Full Dispatch (Booked)</div>
-                        <div class="text-green-400 font-black text-lg mt-1">10 <span class="text-blue-500 text-xs">$CANDLE</span></div>
-                    </div>
-                </div>
-            </div>
-        </section>
 
-        <!-- Scout Quick-Start Guide -->
-        <section>
+                <a href="/drivers/scout-loads" class="block bg-slate-900 border border-slate-800 rounded-2xl p-5 hover:border-blue-500/40 transition group">
+                    <div class="flex items-start gap-3">
+                        <div class="bg-blue-600/20 p-2.5 rounded-xl group-hover:bg-blue-600/30 transition">
+                            <i class="fas fa-satellite-dish text-blue-400 text-lg"></i>
+                        </div>
+                        <div class="flex-1 min-w-0">
+                            <h3 class="text-white font-bold text-base mb-0.5">Scout Picked Loads</h3>
+                            <p class="text-slate-400 text-xs leading-relaxed">Jobs the extension has picked from DAT / TruckSmarter.</p>
+                            <div class="flex items-center gap-3 mt-3">
+                                <span class="text-blue-400 font-bold text-xs group-hover:text-blue-300">View Loads →</span>
+                                <a href="/drivers/scout-setup" onclick="event.stopPropagation()" class="text-slate-500 hover:text-slate-300 font-bold text-[10px] flex items-center gap-1 transition">
+                                    <i class="fas fa-sliders text-[10px]"></i> Configure Scout
+                                </a>
+                            </div>
+                        </div>
+                    </div>
+                </a>
+
+                <div>
+                    <h3 class="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-1 mb-2">Scout Status</h3>
+                    <div id="scout-status-container"
+                         class="bg-slate-900 border border-slate-800 rounded-2xl p-5"
+                         hx-get="/drivers/scout-status"
+                         hx-trigger="load, every 60s"
+                         hx-swap="innerHTML">
+                        <div class="animate-pulse flex flex-col space-y-3">
+                            <div class="h-4 bg-slate-800 rounded w-2/3"></div>
+                            <div class="h-8 bg-slate-800 rounded w-full"></div>
+                        </div>
+                    </div>
+                </div>
+
+                {% if scout_activity %}
+                <div>
+                    <h3 class="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-1 mb-2">Recent Scout Activity</h3>
+                    <div class="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden">
+                        <div class="divide-y divide-slate-800">
+                            {% for item in scout_activity %}
+                            <div class="flex items-center justify-between gap-3 px-4 py-2.5 hover:bg-slate-800/40 transition">
+                                <div class="min-w-0 flex-1">
+                                    <p class="text-white font-bold text-xs truncate">{{ item.origin or '—' }} <span class="text-slate-600">→</span> {{ item.destination or '—' }}</p>
+                                    <p class="text-slate-500 text-[10px] mt-0.5 flex items-center gap-2">
+                                        {% if item.price %}<span class="text-green-400">{{ item.price }}</span>{% endif %}
+                                        <span>{{ item.created_at.strftime('%b %d, %I:%M %p') if item.created_at else '' }}</span>
+                                    </p>
+                                </div>
+                                {% set step = item.next_step %}
+                                {% if step == 'AUTO_SENT' %}
+                                <span class="shrink-0 bg-green-500/10 border border-green-500/30 text-green-400 text-[9px] font-black uppercase tracking-wider px-2 py-0.5 rounded">Auto-sent</span>
+                                {% elif step == 'NEEDS_APPROVAL' %}
+                                <a href="/drivers/scout-loads?tab=queued" class="shrink-0 bg-amber-500/10 border border-amber-500/30 text-amber-400 text-[9px] font-black uppercase tracking-wider px-2 py-0.5 rounded hover:bg-amber-500/20 transition">Queued</a>
+                                {% elif step == 'SAVED_ONLY' %}
+                                <span class="shrink-0 bg-slate-700/60 border border-slate-600 text-slate-400 text-[9px] font-black uppercase tracking-wider px-2 py-0.5 rounded">Saved</span>
+                                {% elif step in ('CALL_REQUIRED', 'MISSING_BROKER_EMAIL') %}
+                                <span class="shrink-0 bg-blue-500/10 border border-blue-500/30 text-blue-400 text-[9px] font-black uppercase tracking-wider px-2 py-0.5 rounded">{{ 'Call required' if step == 'CALL_REQUIRED' else 'Needs enrichment' }}</span>
+                                {% elif step == 'BROKER_BLOCKED' %}
+                                <span class="shrink-0 bg-red-500/10 border border-red-500/30 text-red-400 text-[9px] font-black uppercase tracking-wider px-2 py-0.5 rounded">Blocked</span>
+                                {% elif step == 'SETUP_REQUIRED' %}
+                                <a href="/drivers/scout-setup" class="shrink-0 bg-amber-500/10 border border-amber-500/30 text-amber-400 text-[9px] font-black uppercase tracking-wider px-2 py-0.5 rounded hover:bg-amber-500/20 transition">Setup</a>
+                                {% elif step == 'SCOUT_PAUSED' %}
+                                <span class="shrink-0 bg-slate-700/60 border border-slate-600 text-slate-500 text-[9px] font-black uppercase tracking-wider px-2 py-0.5 rounded">Paused</span>
+                                {% else %}
+                                <span class="shrink-0 bg-slate-700/60 border border-slate-600 text-slate-400 text-[9px] font-black uppercase tracking-wider px-2 py-0.5 rounded">{{ step }}</span>
+                                {% endif %}
+                            </div>
+                            {% endfor %}
+                        </div>
+                        <a href="/drivers/scout-loads" class="block text-center text-slate-500 hover:text-white text-[10px] font-bold py-2.5 border-t border-slate-800 transition">View all Scout loads →</a>
+                    </div>
+                </div>
+                {% endif %}
+            </section>
+
+            <!-- Zone 2: Negotiate & Win -->
+            <section class="flex flex-col gap-4">
+                <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                    <div>
+                        <h2 class="text-xs font-black text-white uppercase tracking-wider">2. Negotiate & Win</h2>
+                        <p class="text-slate-500 text-[11px] mt-1">AI handles broker conversations. Review offers and secure the load.</p>
+                    </div>
+                    <button onclick="document.getElementById('rate-modal').classList.remove('hidden')"
+                            class="shrink-0 flex items-center gap-2 bg-slate-800 hover:bg-green-600/20 border border-slate-700 hover:border-green-500/50 text-white px-4 py-2 rounded-xl transition-all group text-xs font-black uppercase tracking-tight">
+                        <i class="fas fa-filter text-green-500 group-hover:scale-110 transition-transform"></i> Set Floor Rates
+                    </button>
+                </div>
+
+                <div id="active-missions-container"
+                     hx-get="/drivers/dashboard-active-loads"
+                     hx-trigger="load, every 30s, dashboardActiveLoadsRefresh from:body"
+                     hx-swap="innerHTML"
+                     class="min-h-[280px]">
+                    <div class="bg-slate-900 border border-slate-800 rounded-2xl p-10 text-center">
+                        <div class="bg-slate-800 w-14 h-14 rounded-full flex items-center justify-center mx-auto mb-3 text-slate-600">
+                            <i class="fas fa-radar text-xl"></i>
+                        </div>
+                        <h4 class="text-white font-bold text-sm">Scanning for Opportunities</h4>
+                        <p class="text-slate-500 text-[11px] mt-1.5 max-w-xs mx-auto">Your fuel is ready. Open your load board to deploy Scout and start a negotiation.</p>
+                        <a href="/drivers/load-board" class="mt-4 inline-block bg-white text-black font-bold text-[10px] px-5 py-2.5 rounded-full uppercase tracking-tighter hover:bg-blue-500 hover:text-white transition">
+                            Open Load Board
+                        </a>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Zone 3: Paperwork & Get Paid -->
+            <section class="flex flex-col gap-4">
+                <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                    <div>
+                        <h2 class="text-xs font-black text-white uppercase tracking-wider">3. Paperwork & Get Paid</h2>
+                        <p class="text-slate-500 text-[11px] mt-1">Upload BOL, create invoice, send packet to factoring.</p>
+                    </div>
+                    <a href="/drivers/uploads" class="shrink-0 flex items-center gap-2 bg-green-600 hover:bg-green-500 text-white text-xs font-black px-4 py-2 rounded-xl transition">
+                        <i class="fas fa-file-upload"></i> Go to Paperwork
+                    </a>
+                </div>
+
+                {% include "drivers/partials/packet_readiness_panel.html" %}
+
+                <a href="/drivers/uploads" class="block bg-slate-900 border border-slate-800 rounded-2xl p-5 hover:border-green-500/40 transition group">
+                    <div class="flex items-start gap-3">
+                        <div class="bg-green-600/20 p-2.5 rounded-xl group-hover:bg-green-600/30 transition">
+                            <i class="fas fa-file-invoice text-green-400 text-lg"></i>
+                        </div>
+                        <div class="flex-1 min-w-0">
+                            <h3 class="text-white font-bold text-base mb-0.5">After you win a load</h3>
+                            <p class="text-slate-400 text-xs leading-relaxed">Use <strong class="text-slate-300">Manage</strong> to get funded: upload BOL, create invoice, send packet to Century Finance.</p>
+                            <span class="inline-block mt-3 text-green-400 font-bold text-xs group-hover:text-green-300">Go to Paperwork →</span>
+                        </div>
+                    </div>
+                </a>
+            </section>
+        </div>
+
+        <!-- Scout Quick-Start Guide (full width) -->
+        <section class="mt-8">
             <h3 class="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-1 mb-3">How to Find & Book Loads</h3>
             <div class="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-4">
                 <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
@@ -256,37 +235,70 @@
                             <span class="bg-blue-600 text-white text-xs font-black w-6 h-6 rounded-full flex items-center justify-center shrink-0">1</span>
                             <p class="text-white font-bold text-sm group-hover:text-blue-300 transition">Set Up Scout</p>
                         </div>
-                        <p class="text-slate-500 text-xs leading-relaxed">
-                            Install the Chrome extension, paste your API key, and set your lane preferences (origin, destination, min rate). This tells CoDriver what loads to work for you.
-                        </p>
+                        <p class="text-slate-500 text-xs leading-relaxed">Install the Chrome extension, paste your API key, and set your lane preferences.</p>
                         <span class="inline-block mt-3 text-blue-400 text-xs font-bold group-hover:text-blue-300">Go to Scout Setup →</span>
                     </a>
-
                     <div class="bg-slate-800/50 border border-slate-700 rounded-xl p-4">
                         <div class="flex items-center gap-3 mb-2">
                             <span class="bg-green-600 text-white text-xs font-black w-6 h-6 rounded-full flex items-center justify-center shrink-0">2</span>
                             <p class="text-white font-bold text-sm">Browse & Click</p>
                         </div>
-                        <p class="text-slate-500 text-xs leading-relaxed">
-                            Open DAT, TruckSmarter, or TruckStop in Chrome. When you see a load you want, click the green <strong class="text-slate-300">"SHIP TO DISPATCH"</strong> button the extension adds to the page.
-                        </p>
+                        <p class="text-slate-500 text-xs leading-relaxed">Open DAT, TruckSmarter, or TruckStop in Chrome. Click the green <strong class="text-slate-300">SHIP TO DISPATCH</strong> button.</p>
                         <span class="inline-block mt-3 text-slate-600 text-xs font-bold">Chrome extension required</span>
                     </div>
-
                     <a href="/drivers/scout-loads" class="group bg-slate-800/50 border border-slate-700 hover:border-green-500/50 rounded-xl p-4 transition block">
                         <div class="flex items-center gap-3 mb-2">
                             <span class="bg-purple-600 text-white text-xs font-black w-6 h-6 rounded-full flex items-center justify-center shrink-0">3</span>
                             <p class="text-white font-bold text-sm group-hover:text-green-300 transition">Watch It Work</p>
                         </div>
-                        <p class="text-slate-500 text-xs leading-relaxed">
-                            CoDriver emails the broker automatically. The negotiation appears below under <strong class="text-slate-300">Active Negotiations</strong>. You'll see every offer and counter in real time.
-                        </p>
+                        <p class="text-slate-500 text-xs leading-relaxed">CoDriver emails the broker. The negotiation appears in <strong class="text-slate-300">Negotiate & Win</strong> above.</p>
                         <span class="inline-block mt-3 text-green-400 text-xs font-bold group-hover:text-green-300">View Scout Loads →</span>
                     </a>
                 </div>
             </div>
         </section>
 
+        <!-- Account & Usage (collapsible) -->
+        <details class="mt-8 group">
+            <summary class="flex items-center justify-between cursor-pointer list-none py-3 px-4 bg-slate-900/50 border border-slate-800 rounded-xl hover:bg-slate-800/30 transition text-slate-400 hover:text-white text-[10px] font-black uppercase tracking-widest">
+                <span>Account & Usage</span>
+                <i class="fas fa-chevron-down details-chevron"></i>
+            </summary>
+            <div class="mt-2 space-y-3 pl-1">
+                <div class="bg-slate-900 border border-slate-800 rounded-2xl p-5">
+                    <div class="flex justify-between items-end mb-2">
+                        <span class="text-[9px] font-black text-slate-500 uppercase tracking-widest">Automation Fuel</span>
+                        <span class="text-lg font-black text-white neon-glow">{{ "%.1f"|format(balance) }} <span class="text-xs text-blue-500">$CANDLE</span></span>
+                    </div>
+                    <div class="w-full bg-slate-800 h-1.5 rounded-full overflow-hidden">
+                        <div class="bg-blue-500 h-full fuel-bar" style="width: calc(var(--fuel-pct) * 1%)"></div>
+                    </div>
+                </div>
+                <div class="bg-slate-900 border border-slate-800 rounded-2xl p-5">
+                    <h3 class="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-3 flex items-center gap-2">
+                        <i class="fas fa-gas-pump text-blue-500"></i> Automation Fuel Costs
+                    </h3>
+                    <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                        <div class="bg-slate-800/50 rounded-xl p-3 border border-slate-700">
+                            <div class="text-slate-400 text-[10px] uppercase font-bold">Negotiation / Counter</div>
+                            <div class="text-white font-black text-sm mt-1">0.5 <span class="text-blue-500 text-[10px]">$CANDLE</span></div>
+                        </div>
+                        <div class="bg-slate-800/50 rounded-xl p-3 border border-slate-700">
+                            <div class="text-slate-400 text-[10px] uppercase font-bold">Voice Escalation</div>
+                            <div class="text-white font-black text-sm mt-1">0.5 <span class="text-blue-500 text-[10px]">$CANDLE</span></div>
+                        </div>
+                        <div class="bg-slate-800/50 rounded-xl p-3 border border-slate-700">
+                            <div class="text-slate-400 text-[10px] uppercase font-bold">Factoring Packet</div>
+                            <div class="text-white font-black text-sm mt-1">0.3 <span class="text-blue-500 text-[10px]">$CANDLE</span></div>
+                        </div>
+                        <div class="bg-slate-800/50 rounded-xl p-3 border border-slate-700">
+                            <div class="text-slate-400 text-[10px] uppercase font-bold">Full Dispatch (Booked)</div>
+                            <div class="text-green-400 font-black text-sm mt-1">10 <span class="text-blue-500 text-[10px]">$CANDLE</span></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </details>
     </main>
 
     {% include "drivers/partials/rate_settings.html" %}
@@ -309,12 +321,9 @@
             <a href="/drivers/load-board" class="text-slate-400 hover:text-white px-6 py-2 rounded-xl text-xs font-bold transition flex items-center gap-2">
                 <i class="fas fa-radar"></i> Load Board
             </a>
-            <a href="/drivers/dashboard" class="relative text-slate-400 hover:text-white px-6 py-2 rounded-xl text-xs font-bold transition flex items-center gap-2">
+            <a href="/drivers/negotiations" class="relative text-slate-400 hover:text-white px-6 py-2 rounded-xl text-xs font-bold transition flex items-center gap-2">
                 <i class="fas fa-comments"></i> Negotiations
                 <span id="msg-badge" class="hidden absolute -top-1 -right-1 bg-red-600 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full animate-pulse">0</span>
-            </a>
-            <a href="/drivers/fleet" class="text-slate-400 hover:text-white px-6 py-2 rounded-xl text-xs font-bold transition">
-                <i class="fas fa-truck-ramp-box"></i> Fleet
             </a>
             <a href="/drivers/uploads" class="text-slate-400 hover:text-white px-6 py-2 rounded-xl text-xs font-bold transition flex items-center gap-2">
                 <i class="fas fa-file-upload"></i> Paperwork
