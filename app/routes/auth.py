@@ -1,6 +1,6 @@
 import re
 import json
-from datetime import datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, Form, Request
 from fastapi.responses import JSONResponse, RedirectResponse
@@ -9,7 +9,7 @@ from sqlalchemy import or_
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
-from app.core.config import settings as core_settings
+from app.core.config import get_safe_base_url_from_request, is_beta_request, settings as core_settings
 from app.database import get_db
 from app.models.driver import Driver
 from app.services.email import send_century_referral_email, send_magic_link_email
@@ -246,7 +246,12 @@ async def send_magic_link(
     )
     db.commit()
 
-    verify_url = f"{core_settings.APP_BASE_URL.rstrip('/')}/auth/magic/verify?token={token}"
+    base_url = get_safe_base_url_from_request(
+        request,
+        fallback_base_url=core_settings.APP_BASE_URL,
+        trusted_proxy_ips=core_settings.TRUSTED_PROXY_IPS,
+    )
+    verify_url = f"{base_url.rstrip('/')}/auth/magic/verify?token={token}"
     send_magic_link_email(normalized_email, verify_url)
 
     context = {
@@ -475,17 +480,28 @@ async def register_trucker(
         request.session["user_id"] = selected_driver.id
         request.session.pop("pending_email", None)
     else:
-        new_driver = Driver(
-            display_name=human_name,
-            dispatch_handle=clean_handle,
-            email=normalized_email,
-            mc_number=normalized_mc or authority_value,
-            dot_number=normalized_dot or (authority_value if normalized_authority == "DOT" else None),
-            onboarding_status="needs_profile",
-            factor_type=None,
-            email_verified_at=datetime.now(timezone.utc),
-            balance=1.0,
+        beta_host = is_beta_request(
+            request,
+            core_settings.BETA_HOSTS,
+            core_settings.TRUSTED_PROXY_IPS,
         )
+        driver_kw: dict = {
+            "display_name": human_name,
+            "dispatch_handle": clean_handle,
+            "email": normalized_email,
+            "mc_number": normalized_mc or authority_value,
+            "dot_number": normalized_dot or (authority_value if normalized_authority == "DOT" else None),
+            "onboarding_status": "needs_profile",
+            "factor_type": None,
+            "email_verified_at": datetime.now(timezone.utc),
+        }
+        if beta_host:
+            driver_kw["billing_mode"] = "beta"
+            driver_kw["billing_exempt_reason"] = "beta_host"
+            # 60 calendar days. When setting programmatically elsewhere (e.g. admin extend),
+            # use max(existing, new_date) to avoid shortening an already-longer exemption.
+            driver_kw["billing_exempt_until"] = date.today() + timedelta(days=60)
+        new_driver = Driver(**driver_kw)
         db.add(new_driver)
         db.commit()
         db.refresh(new_driver)

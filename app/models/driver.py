@@ -1,4 +1,4 @@
-from sqlalchemy import Boolean, Column, DateTime, Float, ForeignKey, Integer, String
+from sqlalchemy import Boolean, Column, Date, DateTime, Float, ForeignKey, Integer, String, Text
 from sqlalchemy.sql import func
 
 from app.database import Base
@@ -30,6 +30,9 @@ class Driver(Base):
 	auto_negotiate = Column(Boolean, nullable=False, default=True)
 	review_before_send = Column(Boolean, nullable=False, default=False)
 	billing_state = Column(String(40), nullable=False, default="active")
+	billing_mode = Column(String(20), nullable=False, default="paid")
+	billing_exempt_until = Column(Date, nullable=True)
+	billing_exempt_reason = Column(Text, nullable=True)
 	preferred_origin_region = Column(String(100), nullable=True)
 	preferred_destination_region = Column(String(100), nullable=True)
 	preferred_equipment_type = Column(String(100), nullable=True)

@@ -1,0 +1,105 @@
+{% extends "layout/base.html" %}
+
+{% block title %}Internal Accounting | Admin | Green Candle Dispatch{% endblock %}
+
+{% block content %}
+<section class="max-w-4xl mx-auto px-6 py-10 space-y-8">
+  <header>
+    <p class="text-sm uppercase tracking-[0.2em] text-amber-400">Admin Only</p>
+    <h1 class="text-2xl font-bold text-white mt-1">Internal Accounting</h1>
+    <p class="text-gray-400 text-sm mt-1">Planning guide — not money movement. Do not share with drivers.</p>
+  </header>
+
+  {% if not authorized %}
+  <form method="get" action="/admin/accounting" class="bg-zinc-900 border border-white/10 rounded-2xl p-6 space-y-4">
+    <label class="block text-sm text-gray-300">Admin password</label>
+    <input type="password" name="admin_password" value="{{ admin_password or '' }}" placeholder="Enter admin password" required
+           class="w-full rounded-lg bg-zinc-800 border border-white/10 px-3 py-2 text-white">
+    <button type="submit" class="bg-amber-600 hover:bg-amber-500 text-white font-semibold px-4 py-2 rounded-lg">
+      View accounting
+    </button>
+    {% if error %}
+    <p class="text-red-400 text-sm">{{ error }}</p>
+    {% endif %}
+  </form>
+  {% else %}
+
+  <!-- Week navigation -->
+  <div class="flex items-center justify-between gap-4 flex-wrap">
+    <div class="flex items-center gap-2">
+      <a href="/admin/accounting?admin_password={{ admin_password }}&week_ending={{ prev_week.isoformat() }}"
+         class="px-3 py-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-gray-300 text-sm">←</a>
+      <span class="text-white font-bold">{{ week_start.strftime('%b %d, %Y') }} → {{ week_ending.strftime('%b %d, %Y') }}</span>
+      {% if next_week %}
+      <a href="/admin/accounting?admin_password={{ admin_password }}&week_ending={{ next_week.isoformat() }}"
+         class="px-3 py-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-gray-300 text-sm">→</a>
+      {% else %}
+      <span class="px-3 py-1.5 rounded-lg bg-zinc-800/50 text-gray-500 text-sm cursor-default">→</span>
+      {% endif %}
+    </div>
+    <div class="flex items-center gap-3">
+      <a href="/admin/enrich?admin_password={{ admin_password }}" class="text-xs text-gray-500 hover:text-gray-300">← Enrich</a>
+      <a href="/admin/beta?admin_password={{ admin_password }}" class="text-xs text-amber-400 hover:text-amber-300">Beta drivers</a>
+    </div>
+  </div>
+
+  <!-- Weekly totals -->
+  <div class="bg-zinc-900 border border-white/10 rounded-2xl p-6">
+    <h2 class="text-sm font-bold text-white uppercase tracking-wider mb-4">Weekly totals</h2>
+    <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+      <div class="bg-zinc-800/50 rounded-xl p-4 border border-white/5">
+        <div class="text-xs uppercase tracking-wider text-gray-400">Total fees collected</div>
+        <div class="text-xl font-black text-white mt-1">${{ "%.2f"|format(total_fees_collected|default(0)) }}</div>
+      </div>
+      <div class="bg-zinc-800/50 rounded-xl p-4 border border-white/5">
+        <div class="text-xs uppercase tracking-wider text-gray-400">Referral bounty paid</div>
+        <div class="text-xl font-black text-amber-400 mt-1">${{ "%.2f"|format(referral_bounty_paid|default(0)) }}</div>
+      </div>
+      <div class="bg-zinc-800/50 rounded-xl p-4 border border-emerald-500/20">
+        <div class="text-xs uppercase tracking-wider text-gray-400">Net revenue</div>
+        <div class="text-xl font-black text-emerald-400 mt-1">${{ "%.2f"|format(net_revenue|default(0)) }}</div>
+      </div>
+    </div>
+    <p class="text-xs text-gray-500 mt-3">Net revenue = Total fees − Referral bounty. Totals are from fee_ledger (accrued). For cash collected, use billing run data and exclude is_exempt invoices.</p>
+  </div>
+
+  <!-- Target allocation guide -->
+  <div class="bg-zinc-900 border border-white/10 rounded-2xl p-6">
+    <h2 class="text-sm font-bold text-white uppercase tracking-wider mb-2">Target allocation guide</h2>
+    <p class="text-gray-400 text-xs mb-4">Planning percentages — not actual money movement.</p>
+    <table class="w-full text-left text-sm">
+      <thead>
+        <tr class="text-xs uppercase tracking-wider text-gray-400 border-b border-white/10">
+          <th class="py-3 pr-4">Bucket</th>
+          <th class="py-3 pr-4">Target %</th>
+          <th class="py-3">Amount</th>
+        </tr>
+      </thead>
+      <tbody class="divide-y divide-white/5">
+        <tr>
+          <td class="py-3 pr-4 text-white">Infra</td>
+          <td class="py-3 pr-4 text-blue-400 font-bold">{{ infra_target_pct }}%</td>
+          <td class="py-3 text-gray-300">${{ "%.2f"|format((net_revenue|default(0)) * infra_target_pct / 100) }}</td>
+        </tr>
+        <tr>
+          <td class="py-3 pr-4 text-white">Marketing</td>
+          <td class="py-3 pr-4 text-purple-400 font-bold">{{ marketing_target_pct }}%</td>
+          <td class="py-3 text-gray-300">${{ "%.2f"|format((net_revenue|default(0)) * marketing_target_pct / 100) }}</td>
+        </tr>
+        <tr>
+          <td class="py-3 pr-4 text-white">Reserve</td>
+          <td class="py-3 pr-4 text-amber-400 font-bold">{{ reserve_target_pct }}%</td>
+          <td class="py-3 text-gray-300">${{ "%.2f"|format((net_revenue|default(0)) * reserve_target_pct / 100) }}</td>
+        </tr>
+        <tr>
+          <td class="py-3 pr-4 text-white">Platform</td>
+          <td class="py-3 pr-4 text-emerald-400 font-bold">{{ platform_target_pct }}%</td>
+          <td class="py-3 text-gray-300">${{ "%.2f"|format((net_revenue|default(0)) * platform_target_pct / 100) }}</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  {% endif %}
+</section>
+{% endblock %}

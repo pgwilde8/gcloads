@@ -1,6 +1,6 @@
 
 import logging
-from datetime import datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from sqlalchemy import text
 
@@ -18,6 +18,7 @@ from sqlalchemy.orm import Session
 from starlette.middleware.sessions import SessionMiddleware
 
 from app.database import Base, check_database_connection, engine, get_db
+from app.dependencies.billing_gate import require_payment_method_if_paid
 from app.models.broker import Broker, BrokerEmail
 from app.models.driver import Driver
 from app.models.load import Load
@@ -35,8 +36,16 @@ from app.core.config import settings as core_settings
 from app.services.email import send_outbound_email, send_quick_reply_email
 from app.services.document_registry import get_active_documents
 from app.services.packet_manager import log_packet_snapshot, register_uploaded_packet_document
+from app.services.billing import current_week_ending
 from app.services.packet_readiness import packet_readiness_for_driver
 from app.services.packet_storage import ensure_driver_space, packet_driver_dir, packet_file_paths_for_driver, save_packet_file
+from app.services.stripe_fees import StripeConfigError, create_setup_checkout_session
+from app.repositories.billing_repo import (
+    billing_bootstrap_for_driver,
+    extend_billing_exemption,
+    list_beta_drivers_with_exempt_stats,
+    promote_beta_to_paid,
+)
 
 
 class Settings(BaseSettings):
@@ -358,6 +367,12 @@ async def home(request: Request):
     return templates.TemplateResponse("public/home.html", {"request": request})
 
 
+@app.get("/beta")
+@app.get("/drivers_beta")
+async def drivers_beta_page(request: Request):
+    return templates.TemplateResponse("public/drivers_beta.html", {"request": request})
+
+
 @app.get("/register")
 async def register_page(request: Request):
     return RedirectResponse(url="/start", status_code=302)
@@ -479,6 +494,98 @@ async def admin_enrich_page(
     )
 
 
+@app.get("/admin/accounting")
+async def admin_accounting_page(
+    request: Request,
+    admin_password: str | None = None,
+    week_ending: str | None = None,
+    db: Session = Depends(get_db),
+):
+    # Planning-only page: shows weekly totals and target allocation guide.
+    # Does not move funds, write to DB, or perform any financial transactions.
+    if not admin_password or not _admin_authorized(admin_password):
+        return templates.TemplateResponse(
+            "admin/accounting.html",
+            {
+                "request": request,
+                "authorized": False,
+                "admin_password": admin_password or "",
+                "error": "Admin password required." if admin_password else None,
+                "week_start": None,
+                "week_ending": None,
+                "total_fees_collected": 0,
+                "referral_bounty_paid": 0,
+                "net_revenue": 0,
+                "infra_target_pct": 30,
+                "marketing_target_pct": 15,
+                "reserve_target_pct": 15,
+                "platform_target_pct": 40,
+            },
+            status_code=401,
+        )
+
+    we: date
+    if week_ending:
+        try:
+            parsed = date.fromisoformat(week_ending)
+            if parsed.weekday() != 4:
+                we = current_week_ending()
+            else:
+                we = parsed
+        except ValueError:
+            we = current_week_ending()
+    else:
+        we = current_week_ending()
+
+    week_start = we - timedelta(days=6)
+
+    row = db.execute(
+        text("""
+            SELECT
+                COALESCE(SUM(total_fee_collected), 0)::numeric AS total_fees_collected,
+                COALESCE(SUM(referral_bounty_paid), 0)::numeric AS referral_bounty_paid
+            FROM fee_ledger
+            WHERE created_at::date >= :week_start
+              AND created_at < CAST(:week_ending AS date) + INTERVAL '1 day'
+        """),
+        {"week_start": week_start, "week_ending": we},
+    ).mappings().first()
+
+    total = float(row["total_fees_collected"] or 0)
+    referral = float(row["referral_bounty_paid"] or 0)
+    net_revenue = total - referral
+
+    infra_pct = 30
+    marketing_pct = 15
+    reserve_pct = 15
+    platform_pct = 40
+
+    prev_week = we - timedelta(days=7)
+    next_week_val = we + timedelta(days=7)
+    next_week = next_week_val if next_week_val <= current_week_ending() else None
+
+    return templates.TemplateResponse(
+        "admin/accounting.html",
+        {
+            "request": request,
+            "authorized": True,
+            "admin_password": admin_password,
+            "error": None,
+            "week_start": week_start,
+            "week_ending": we,
+            "total_fees_collected": total,
+            "referral_bounty_paid": referral,
+            "net_revenue": net_revenue,
+            "infra_target_pct": infra_pct,
+            "marketing_target_pct": marketing_pct,
+            "reserve_target_pct": reserve_pct,
+            "platform_target_pct": platform_pct,
+            "prev_week": prev_week,
+            "next_week": next_week,
+        },
+    )
+
+
 @app.post("/admin/enrich")
 async def admin_enrich_save(
     request: Request,
@@ -573,6 +680,115 @@ async def admin_enrich_save(
             "preferred_method": broker.preferred_contact_method or "email",
         },
     )
+
+
+@app.get("/admin/beta")
+async def admin_beta_page(
+    request: Request,
+    admin_password: str | None = None,
+    promoted: int = 0,
+    extended: int = 0,
+    error: str | None = None,
+    db: Session = Depends(get_db),
+):
+    if not admin_password or not _admin_authorized(admin_password):
+        return templates.TemplateResponse(
+            "admin/beta.html",
+            {
+                "request": request,
+                "authorized": False,
+                "admin_password": admin_password or "",
+                "error": "Admin password required." if admin_password else None,
+                "drivers": [],
+            },
+            status_code=401,
+        )
+
+    drivers = list_beta_drivers_with_exempt_stats(db)
+
+    return templates.TemplateResponse(
+        "admin/beta.html",
+        {
+            "request": request,
+            "authorized": True,
+            "admin_password": admin_password,
+            "error": error,
+            "drivers": drivers,
+            "promoted": promoted == 1,
+            "extended": extended == 1,
+        },
+    )
+
+
+@app.post("/admin/beta/promote")
+async def admin_beta_promote(
+    request: Request,
+    admin_password: str = Form(""),
+    driver_id: int = Form(...),
+    db: Session = Depends(get_db),
+):
+    if not _admin_authorized(admin_password):
+        return RedirectResponse(
+            url=f"/admin/beta?error=Unauthorized",
+            status_code=303,
+        )
+
+    ok = promote_beta_to_paid(db, driver_id)
+    db.commit()
+
+    if ok:
+        return RedirectResponse(
+            url=f"/admin/beta?admin_password={admin_password}&promoted=1",
+            status_code=303,
+        )
+    return RedirectResponse(
+        url=f"/admin/beta?admin_password={admin_password}&error=Driver+not+found+or+not+beta",
+        status_code=303,
+    )
+
+
+@app.post("/admin/beta/extend")
+async def admin_beta_extend(
+    request: Request,
+    admin_password: str = Form(""),
+    driver_id: int = Form(...),
+    new_exempt_until: str = Form(...),
+    reason: str = Form(""),
+    db: Session = Depends(get_db),
+):
+    if not _admin_authorized(admin_password):
+        return RedirectResponse(
+            url=f"/admin/beta?error=Unauthorized",
+            status_code=303,
+        )
+
+    try:
+        parsed = date.fromisoformat(new_exempt_until.strip())
+    except ValueError:
+        return RedirectResponse(
+            url=f"/admin/beta?admin_password={admin_password}&error=Invalid+date+format",
+            status_code=303,
+        )
+
+    if parsed < date.today():
+        return RedirectResponse(
+            url=f"/admin/beta?admin_password={admin_password}&error=Extend+date+must+be+today+or+later",
+            status_code=303,
+        )
+
+    ok = extend_billing_exemption(db, driver_id, parsed, reason.strip() or None)
+    db.commit()
+
+    if ok:
+        return RedirectResponse(
+            url=f"/admin/beta?admin_password={admin_password}&extended=1",
+            status_code=303,
+        )
+    return RedirectResponse(
+        url=f"/admin/beta?admin_password={admin_password}&error=Driver+not+found",
+        status_code=303,
+    )
+
 
 @app.get("/drivers/dashboard-active-loads")
 async def get_active_negotiations(
@@ -732,10 +948,8 @@ async def quick_reply_action(
     action: str = Form(...),
     negotiation_id: int = Form(...),
     db: Session = Depends(get_db),
+    selected_driver: Driver = Depends(require_payment_method_if_paid),
 ):
-    selected_driver = _session_driver(request, db)
-    if not selected_driver:
-        return JSONResponse(status_code=401, content={"status": "error", "message": "auth_required"})
 
     negotiation = (
         db.query(Negotiation)
@@ -903,10 +1117,8 @@ async def approve_draft_send(
     request: Request,
     negotiation_id: int = Form(...),
     db: Session = Depends(get_db),
+    selected_driver: Driver = Depends(require_payment_method_if_paid),
 ):
-    selected_driver = _session_driver(request, db)
-    if not selected_driver:
-        return JSONResponse(status_code=401, content={"status": "error", "message": "auth_required"})
 
     negotiation = (
         db.query(Negotiation)
@@ -1261,7 +1473,6 @@ async def driver_dashboard(
     if gate_redirect:
         return RedirectResponse(url=gate_redirect, status_code=302)
 
-    balance = float(selected_driver.balance) if selected_driver else 25.0
     display_name = selected_driver.display_name if selected_driver else "scout"
     mc_number = selected_driver.mc_number if selected_driver else "MC-PENDING"
     dispatch_handle = _preferred_dispatch_handle(selected_driver)
@@ -1294,12 +1505,18 @@ async def driver_dashboard(
         except Exception:
             pass
 
+    billing_bootstrap = billing_bootstrap_for_driver(db, selected_driver.id) if selected_driver else {}
+    show_beta_banner = (
+        (billing_bootstrap.get("billing_mode") or "").lower() == "beta"
+        or billing_bootstrap.get("is_currently_billing_exempt", False)
+    )
+
     return templates.TemplateResponse(
         "drivers/dashboard.html",
         {
             "request": request,
-            "balance": balance,
-            "show_beta_banner": False,
+            "show_beta_banner": show_beta_banner,
+            "billing_bootstrap": billing_bootstrap,
             "is_new_driver": selected_driver is None,
             "trucker": {
                 "display_name": display_name,
@@ -1380,17 +1597,38 @@ async def driver_gcd_training_page(
     if not selected_driver:
         return RedirectResponse(url="/start", status_code=302)
 
-    balance = float(selected_driver.balance)
-
     return templates.TemplateResponse(
         "drivers/gcdtraining.html",
         {
             "request": request,
-            "balance": balance,
             "user": selected_driver,
             "driver_email": selected_driver.email if selected_driver else "",
         },
     )
+
+
+@app.get("/api/drivers/billing-bootstrap")
+async def get_billing_bootstrap(
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    """JSON bootstrap for frontend: billing_mode, billing_exempt_until, is_currently_billing_exempt, has_payment_method."""
+    selected_driver = _session_driver(request, db)
+    if not selected_driver:
+        return JSONResponse(status_code=401, content={"message": "auth_required"})
+
+    bootstrap = billing_bootstrap_for_driver(db, selected_driver.id)
+    # Return only fields needed by frontend; exclude billing_exempt_reason (internal)
+    out = {
+        "billing_mode": bootstrap.get("billing_mode"),
+        "billing_exempt_until": None,
+        "is_currently_billing_exempt": bootstrap.get("is_currently_billing_exempt"),
+        "has_payment_method": bootstrap.get("has_payment_method"),
+    }
+    exempt_until = bootstrap.get("billing_exempt_until")
+    if exempt_until:
+        out["billing_exempt_until"] = exempt_until.isoformat() if hasattr(exempt_until, "isoformat") else str(exempt_until)
+    return out
 
 
 @app.get("/api/notifications/unread-count")
@@ -1503,7 +1741,6 @@ async def driver_scout_loads(request: Request, tab: str = "loads", db: Session =
         "drivers/scout_loads.html",
         {
             "request": request,
-            "balance": float(selected_driver.balance) if selected_driver else 25.0,
             "loads": loads,
             "queued_items": queued_items,
             "queued_count": len(queued_items),
@@ -1526,7 +1763,6 @@ async def driver_load_board(request: Request, db: Session = Depends(get_db)):
         "drivers/load_board.html",
         {
             "request": request,
-            "balance": float(selected_driver.balance) if selected_driver else 25.0,
             "loads": loads,
         },
     )
@@ -1558,6 +1794,58 @@ async def get_scout_status(request: Request, db: Session = Depends(get_db)):
             "queued_count": queued_count,
         },
     )
+
+
+@app.get("/drivers/add-payment")
+async def driver_add_payment_get(request: Request, db: Session = Depends(get_db)):
+    """Page to add a payment method. Redirects unauthenticated to start."""
+    driver = _session_driver(request, db)
+    if not driver:
+        return RedirectResponse(url="/start", status_code=302)
+    gate_redirect = _onboarding_gate_redirect(driver)
+    if gate_redirect:
+        return RedirectResponse(url=gate_redirect, status_code=302)
+    return templates.TemplateResponse(
+        "drivers/add_payment.html",
+        {"request": request, "driver": driver},
+    )
+
+
+@app.post("/drivers/add-payment")
+async def driver_add_payment_post(request: Request, db: Session = Depends(get_db)):
+    """Create Stripe checkout session and redirect to add card."""
+    driver = _session_driver(request, db)
+    if not driver or not driver.email:
+        return RedirectResponse(url="/start", status_code=302)
+    base = str(request.base_url).rstrip("/")
+    dashboard_url = f"{base}/drivers/dashboard"
+    try:
+        result = create_setup_checkout_session(
+            db=db,
+            driver_email=driver.email,
+            success_url=dashboard_url,
+            cancel_url=dashboard_url,
+        )
+    except StripeConfigError:
+        return templates.TemplateResponse(
+            "drivers/add_payment.html",
+            {"request": request, "driver": driver, "error": "Payment setup is not configured."},
+            status_code=503,
+        )
+    except ValueError as e:
+        return templates.TemplateResponse(
+            "drivers/add_payment.html",
+            {"request": request, "driver": driver, "error": str(e)},
+            status_code=404,
+        )
+    checkout_url = result.get("checkout_url") if result else None
+    if not checkout_url:
+        return templates.TemplateResponse(
+            "drivers/add_payment.html",
+            {"request": request, "driver": driver, "error": "Could not start checkout."},
+            status_code=500,
+        )
+    return RedirectResponse(url=checkout_url, status_code=303)
 
 
 @app.get("/drivers/scout-setup")
@@ -1796,8 +2084,11 @@ async def internal_billing_run(
         "drivers_succeeded": result.drivers_succeeded,
         "drivers_failed": result.drivers_failed,
         "drivers_skipped": result.drivers_skipped,
+        "drivers_exempted": result.drivers_exempted,
         "total_amount_cents": result.total_amount_cents,
         "total_amount_usd": round(result.total_amount_cents / 100, 2),
+        "exempt_total_amount_cents": result.exempt_total_amount_cents,
+        "exempt_total_amount_usd": round(result.exempt_total_amount_cents / 100, 2),
     }
 
     if dry_run:

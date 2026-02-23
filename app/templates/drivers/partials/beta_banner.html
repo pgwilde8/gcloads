@@ -1,3 +1,12 @@
-<div class="bg-blue-500/10 border border-blue-500/30 text-blue-300 rounded-xl px-4 py-3 text-xs">
-  Beta access is enabled. Features and pricing can change during rollout.
+{# billing_bootstrap: billing_mode, billing_exempt_until, is_currently_billing_exempt, has_payment_method #}
+<div class="bg-emerald-900/30 border border-emerald-500/40 text-emerald-200 rounded-xl px-4 py-3 text-sm space-y-2">
+  {% if billing_bootstrap.billing_mode == 'beta' %}
+  <p class="font-semibold">Beta mode — you won't be charged{% if billing_bootstrap.billing_exempt_until %} until {{ billing_bootstrap.billing_exempt_until.strftime('%b %d, %Y') }}{% else %} during your trial{% endif %}.</p>
+  {% elif billing_bootstrap.is_currently_billing_exempt and billing_bootstrap.billing_exempt_until %}
+  <p class="font-semibold">Promotional free period active — you won't be charged until {{ billing_bootstrap.billing_exempt_until.strftime('%b %d, %Y') }}.</p>
+  {% endif %}
+  {% if not billing_bootstrap.has_payment_method %}
+  <p class="text-emerald-200/80 text-xs">Add a payment method anytime to go live immediately when trial ends.</p>
+  <a href="/drivers/add-payment" class="inline-block mt-2 px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold transition">Add payment method</a>
+  {% endif %}
 </div>

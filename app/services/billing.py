@@ -20,6 +20,7 @@ import pytz
 from sqlalchemy.orm import Session
 
 from app.repositories import billing_repo
+from app.repositories.billing_repo import is_driver_billing_exempt
 from app.services.stripe_billing import (
     PaymentIntentResult,
     create_payment_intent_off_session,
@@ -41,7 +42,7 @@ class DriverRunResult:
     week_ending: date
     invoice_ids: list[int]
     total_amount_cents: int
-    status: str           # success | failed | skipped | dry_run | needs_reconcile
+    status: str           # success | failed | skipped | dry_run | needs_reconcile | exempt_success
     error_message: str | None = None
     stripe_payment_intent_id: str | None = None
 
@@ -54,7 +55,9 @@ class BillingJobResult:
     drivers_succeeded: int = 0
     drivers_failed: int = 0
     drivers_skipped: int = 0
+    drivers_exempted: int = 0
     total_amount_cents: int = 0
+    exempt_total_amount_cents: int = 0
     driver_results: list[DriverRunResult] = field(default_factory=list)
 
 
@@ -110,6 +113,9 @@ def run_weekly_billing(
         if driver_result.status == "success":
             result.drivers_succeeded += 1
             result.total_amount_cents += driver_result.total_amount_cents
+        elif driver_result.status == "exempt_success":
+            result.drivers_exempted += 1
+            result.exempt_total_amount_cents += driver_result.total_amount_cents
         elif driver_result.status in ("failed", "needs_reconcile"):
             result.drivers_failed += 1
         elif driver_result.status == "skipped":
@@ -118,12 +124,14 @@ def run_weekly_billing(
             result.total_amount_cents += driver_result.total_amount_cents
 
     logger.info(
-        "billing_job: complete week_ending=%s processed=%d succeeded=%d failed=%d total_cents=%d",
+        "billing_job: complete week_ending=%s processed=%d succeeded=%d exempted=%d failed=%d total_cents=%d exempt_cents=%d",
         week_ending,
         result.drivers_processed,
         result.drivers_succeeded,
+        result.drivers_exempted,
         result.drivers_failed,
         result.total_amount_cents,
+        result.exempt_total_amount_cents,
     )
     return result
 
@@ -156,12 +164,12 @@ def _process_driver(
             status="dry_run",
         )
 
-    # Idempotency check — skip if already succeeded this week
+    # Idempotency check — skip if already succeeded or exempt this week
     existing_run = billing_repo.get_billing_run(db, driver_id, week_ending)
-    if existing_run and existing_run["status"] == "success":
+    if existing_run and existing_run["status"] in ("success", "exempt_success"):
         logger.info(
-            "billing_job: skipping driver=%d already succeeded run_id=%d",
-            driver_id, existing_run["id"],
+            "billing_job: skipping driver=%d already %s run_id=%d",
+            driver_id, existing_run["status"], existing_run["id"],
         )
         return DriverRunResult(
             driver_id=driver_id,
@@ -171,8 +179,39 @@ def _process_driver(
             status="skipped",
         )
 
-    # Check driver has Stripe payment method
     driver_info = billing_repo.get_driver_stripe_info(db, driver_id)
+
+    # Beta / exempt drivers: create run, mark exempt_success, do NOT call Stripe
+    if is_driver_billing_exempt(driver_info, week_ending):
+        try:
+            run_id = billing_repo.create_billing_run(db, driver_id, week_ending, total_cents)
+            billing_repo.attach_invoices_to_run(db, run_id, invoice_ids, week_ending)
+            billing_repo.mark_run_exempt_success(db, run_id, invoice_ids)
+            db.commit()
+            logger.info(
+                "billing_job: exempt_success driver=%d run_id=%d total_cents=%d",
+                driver_id, run_id, total_cents,
+            )
+            return DriverRunResult(
+                driver_id=driver_id,
+                week_ending=week_ending,
+                invoice_ids=invoice_ids,
+                total_amount_cents=total_cents,
+                status="exempt_success",
+            )
+        except Exception as e:
+            db.rollback()
+            logger.error("billing_job: driver=%d exempt run failed: %s", driver_id, str(e))
+            return DriverRunResult(
+                driver_id=driver_id,
+                week_ending=week_ending,
+                invoice_ids=invoice_ids,
+                total_amount_cents=total_cents,
+                status="failed",
+                error_message=f"exempt_db_error:{str(e)}",
+            )
+
+    # Check driver has Stripe payment method (paid drivers only)
     if not driver_info or not driver_info.get("stripe_customer_id") or not driver_info.get("stripe_default_payment_method_id"):
         logger.warning("billing_job: driver=%d missing stripe info — skipping", driver_id)
         return DriverRunResult(

@@ -1,0 +1,114 @@
+{% extends "layout/base.html" %}
+
+{% block title %}Beta Drivers | Admin | Green Candle Dispatch{% endblock %}
+
+{% block content %}
+<section class="max-w-4xl mx-auto px-6 py-10 space-y-8">
+  <header class="flex items-start justify-between gap-4">
+    <div>
+      <p class="text-sm uppercase tracking-[0.2em] text-amber-400">Admin Only</p>
+      <h1 class="text-2xl font-bold text-white mt-1">Beta Drivers</h1>
+      <p class="text-gray-400 text-sm mt-1">Promote to paid or extend exemption window.</p>
+    </div>
+    <a href="/admin/enrich?admin_password={{ admin_password or '' }}" class="text-xs text-gray-500 hover:text-gray-300 shrink-0">← Enrich</a>
+    <a href="/admin/accounting?admin_password={{ admin_password or '' }}" class="text-xs text-amber-400 hover:text-amber-300 shrink-0">Accounting →</a>
+  </header>
+
+  {% if not authorized %}
+  <form method="get" action="/admin/beta" class="bg-zinc-900 border border-white/10 rounded-2xl p-6 space-y-4">
+    <label class="block text-sm text-gray-300">Admin password</label>
+    <input type="password" name="admin_password" value="{{ admin_password or '' }}" placeholder="Enter admin password" required
+           class="w-full rounded-lg bg-zinc-800 border border-white/10 px-3 py-2 text-white">
+    <button type="submit" class="bg-amber-600 hover:bg-amber-500 text-white font-semibold px-4 py-2 rounded-lg">
+      View beta drivers
+    </button>
+    {% if error %}
+    <p class="text-red-400 text-sm">{{ error }}</p>
+    {% endif %}
+  </form>
+  {% else %}
+
+  {% if promoted %}
+  <div class="bg-emerald-900/30 border border-emerald-500/40 text-emerald-200 px-4 py-3 rounded-xl text-sm">Driver promoted to paid.</div>
+  {% endif %}
+  {% if extended %}
+  <div class="bg-emerald-900/30 border border-emerald-500/40 text-emerald-200 px-4 py-3 rounded-xl text-sm">Exemption extended.</div>
+  {% endif %}
+  {% if error %}
+  <div class="bg-red-900/40 border border-red-500/40 text-red-200 px-4 py-3 rounded-xl text-sm">{{ error }}</div>
+  {% endif %}
+
+  {% if drivers|length == 0 %}
+  <div class="bg-zinc-900 border border-white/10 rounded-2xl p-8 text-center text-gray-400">
+    No beta drivers found.
+  </div>
+  {% else %}
+  <div class="space-y-6">
+    {% for d in drivers %}
+    <div class="bg-zinc-900 border border-white/10 rounded-2xl p-5 space-y-4">
+      <div class="flex flex-wrap items-start justify-between gap-4">
+        <div>
+          <div class="flex items-center gap-2 flex-wrap">
+            <span class="font-semibold text-white">{{ d.display_name or d.email }}</span>
+            <span class="text-xs px-2 py-0.5 rounded-md bg-zinc-800 text-gray-400">{{ d.billing_mode or 'beta' }}</span>
+            {% if d.currently_exempt %}
+            <span class="text-xs px-2 py-0.5 rounded-md bg-emerald-900/50 text-emerald-300 border border-emerald-500/30">currently exempt</span>
+            {% endif %}
+          </div>
+          <p class="text-sm text-gray-400 mt-1">{{ d.email }} · MC {{ d.mc_number or '—' }}</p>
+          {% if d.billing_exempt_until %}
+          <p class="text-xs text-gray-500 mt-1">Exempt until: {{ d.billing_exempt_until.strftime('%Y-%m-%d') }}{% if d.billing_exempt_reason %} ({{ d.billing_exempt_reason }}){% endif %}</p>
+          {% endif %}
+        </div>
+        <div class="text-right text-sm space-y-1">
+          <div>
+            <span class="text-gray-400">Exempt invoices:</span>
+            <span class="font-bold text-white">{{ d.exempt_invoice_count or 0 }}</span>
+            <span class="text-gray-500">·</span>
+            <span class="text-emerald-400">${{ "%.2f"|format((d.exempt_amount_cents or 0) / 100) }}</span>
+          </div>
+          {% if d.last_exempt_invoice_date %}
+          <div class="text-xs text-gray-500">Last exempt: {{ d.last_exempt_invoice_date.strftime('%Y-%m-%d') }}</div>
+          {% endif %}
+          <div>
+            {% if d.has_payment_method %}
+            <span class="text-xs px-2 py-0.5 rounded bg-emerald-900/40 text-emerald-300">has PM</span>
+            {% else %}
+            <span class="text-xs px-2 py-0.5 rounded bg-amber-900/40 text-amber-300" title="Promotion will require PM before sending loads">no PM</span>
+            {% endif %}
+          </div>
+        </div>
+      </div>
+
+      <div class="flex flex-wrap gap-3 pt-2 border-t border-white/5">
+        <form method="post" action="/admin/beta/promote" class="inline">
+          <input type="hidden" name="admin_password" value="{{ admin_password }}">
+          <input type="hidden" name="driver_id" value="{{ d.id }}">
+          <button type="submit" class="bg-emerald-600 hover:bg-emerald-500 text-white text-sm font-semibold px-4 py-2 rounded-lg"
+                  onclick="return confirm('Promote {{ d.display_name or d.email }} to paid? They will need a payment method to send loads.');">
+            Promote to paid
+          </button>
+        </form>
+        <form method="post" action="/admin/beta/extend" class="inline flex flex-wrap items-end gap-2">
+          <input type="hidden" name="admin_password" value="{{ admin_password }}">
+          <input type="hidden" name="driver_id" value="{{ d.id }}">
+          <div class="flex items-center gap-2">
+            <label class="text-xs text-gray-400">Extend until</label>
+            <input type="date" name="new_exempt_until" required
+                   class="rounded-lg bg-zinc-800 border border-white/10 px-2 py-1.5 text-sm">
+          </div>
+          <input type="text" name="reason" placeholder="Reason (optional)" maxlength="200"
+                 class="rounded-lg bg-zinc-800 border border-white/10 px-2 py-1.5 text-sm w-40">
+          <button type="submit" class="bg-amber-600 hover:bg-amber-500 text-white text-sm font-semibold px-3 py-2 rounded-lg">
+            Extend
+          </button>
+        </form>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+  {% endif %}
+
+  {% endif %}
+</section>
+{% endblock %}

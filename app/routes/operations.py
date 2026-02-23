@@ -14,6 +14,7 @@ from reportlab.pdfgen import canvas
 from sqlalchemy.orm import Session
 
 from app.database import get_db
+from app.dependencies.billing_gate import require_payment_method_if_paid
 from app.models.broker import BrokerEmail
 from app.models.call_logs import CallLog
 from app.models.driver import Driver
@@ -213,10 +214,8 @@ async def compose_packet(
     request: Request,
     negotiation_id: int,
     db: Session = Depends(get_db),
+    selected_driver: Driver = Depends(require_payment_method_if_paid),
 ):
-    selected_driver = _session_driver(request, db)
-    if not selected_driver:
-        return JSONResponse(status_code=401, content={"status": "error", "message": "auth_required"})
 
     negotiation = (
         db.query(Negotiation)
@@ -465,10 +464,8 @@ async def secure_load_action(
     negotiation_id: int = Form(...),
     attachment_doc_types: str | None = Form(default=None),
     db: Session = Depends(get_db),
+    selected_driver: Driver = Depends(require_payment_method_if_paid),
 ):
-    selected_driver = _session_driver(request, db)
-    if not selected_driver:
-        return JSONResponse(status_code=401, content={"status": "error", "message": "auth_required"})
 
     negotiation = (
         db.query(Negotiation)
@@ -706,10 +703,8 @@ async def retry_secure_email(
     negotiation_id: int = Form(...),
     attachment_doc_types: str | None = Form(default=None),
     db: Session = Depends(get_db),
+    selected_driver: Driver = Depends(require_payment_method_if_paid),
 ):
-    selected_driver = _session_driver(request, db)
-    if not selected_driver:
-        return JSONResponse(status_code=401, content={"status": "error", "message": "auth_required"})
 
     negotiation = (
         db.query(Negotiation)

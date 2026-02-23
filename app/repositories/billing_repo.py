@@ -3,7 +3,7 @@ Billing repository — all DB reads/writes for the weekly billing job.
 Uses SQLAlchemy text() + Session, matching the existing codebase pattern.
 """
 import logging
-from datetime import date
+from datetime import date, datetime
 from decimal import Decimal
 from typing import Any
 
@@ -54,17 +54,70 @@ def get_pending_invoices_grouped_by_driver(
     return grouped
 
 
+def has_payment_method(driver_info: dict[str, Any] | None) -> bool:
+    """True if driver has Stripe customer and default payment method."""
+    return bool(
+        driver_info
+        and driver_info.get("stripe_customer_id")
+        and driver_info.get("stripe_default_payment_method_id")
+    )
+
+
 def get_driver_stripe_info(db: Session, driver_id: int) -> dict[str, Any] | None:
     row = db.execute(
         text("""
             SELECT id, stripe_customer_id, stripe_default_payment_method_id,
-                   billing_state, stripe_payment_status
+                   billing_state, stripe_payment_status,
+                   billing_mode, billing_exempt_until, billing_exempt_reason
             FROM public.drivers
             WHERE id = :driver_id
         """),
         {"driver_id": driver_id},
     ).mappings().first()
     return dict(row) if row else None
+
+
+def billing_bootstrap_for_driver(db: Session, driver_id: int) -> dict[str, Any]:
+    """
+    Compute billing flags for frontend/bootstrap. All server-side so frontend stays dumb.
+    Returns: billing_mode, billing_exempt_until, billing_exempt_reason,
+             is_currently_billing_exempt, has_payment_method.
+    """
+    driver_info = get_driver_stripe_info(db, driver_id)
+    if not driver_info:
+        return {
+            "billing_mode": "paid",
+            "billing_exempt_until": None,
+            "billing_exempt_reason": None,
+            "is_currently_billing_exempt": False,
+            "has_payment_method": False,
+        }
+    today = date.today()
+    exempt = is_driver_billing_exempt(driver_info, today)
+    return {
+        "billing_mode": driver_info.get("billing_mode") or "paid",
+        "billing_exempt_until": driver_info.get("billing_exempt_until"),
+        "billing_exempt_reason": driver_info.get("billing_exempt_reason"),
+        "is_currently_billing_exempt": exempt,
+        "has_payment_method": has_payment_method(driver_info),
+    }
+
+
+def is_driver_billing_exempt(driver_info: dict[str, Any] | None, week_ending: date) -> bool:
+    """
+    True if driver should not be charged (beta or exempt_until covers this week).
+    Exempt for billing weeks with week_ending <= exempt_until (both DATE).
+    """
+    if not driver_info:
+        return False
+    if (driver_info.get("billing_mode") or "").lower() == "beta":
+        return True
+    exempt_until = driver_info.get("billing_exempt_until")
+    if exempt_until is None:
+        return False
+    # Normalize to date for comparison (handles datetime from DB)
+    exempt_date = exempt_until.date() if isinstance(exempt_until, datetime) else exempt_until
+    return week_ending <= exempt_date
 
 
 def get_billing_run(db: Session, driver_id: int, week_ending: date) -> dict[str, Any] | None:
@@ -164,12 +217,50 @@ def attach_invoices_to_run(
     )
 
 
+def mark_run_exempt_success(
+    db: Session,
+    billing_run_id: int,
+    invoice_ids: list[int],
+) -> None:
+    """
+    Mark run as exempt_success (no Stripe charge).
+    Settles invoices via billing_run_items join — only updates pending invoices
+    that belong to this run. Sets is_exempt=TRUE so revenue reports exclude them.
+    """
+    db.execute(
+        text("""
+            UPDATE public.billing_runs
+            SET status = 'exempt_success',
+                stripe_payment_intent_id = NULL,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE id = :run_id
+        """),
+        {"run_id": billing_run_id},
+    )
+    if invoice_ids:
+        db.execute(
+            text("""
+                UPDATE public.driver_invoices di
+                SET status = 'paid',
+                    stripe_payment_intent_id = NULL,
+                    paid_at = CURRENT_TIMESTAMP,
+                    is_exempt = TRUE
+                FROM public.billing_run_items bri
+                WHERE bri.billing_run_id = :run_id
+                  AND bri.driver_invoice_id = di.id
+                  AND di.status = 'pending'
+            """),
+            {"run_id": billing_run_id},
+        )
+
+
 def mark_run_success(
     db: Session,
     billing_run_id: int,
     stripe_payment_intent_id: str,
     invoice_ids: list[int],
 ) -> None:
+    """Mark run and invoices as paid via Stripe. Sets is_exempt=FALSE (cash payment)."""
     db.execute(
         text("""
             UPDATE public.billing_runs
@@ -183,13 +274,17 @@ def mark_run_success(
     if invoice_ids:
         db.execute(
             text("""
-                UPDATE public.driver_invoices
+                UPDATE public.driver_invoices di
                 SET status = 'paid',
                     stripe_payment_intent_id = :pi_id,
-                    paid_at = CURRENT_TIMESTAMP
-                WHERE id = ANY(:invoice_ids)
+                    paid_at = CURRENT_TIMESTAMP,
+                    is_exempt = FALSE
+                FROM public.billing_run_items bri
+                WHERE bri.billing_run_id = :run_id
+                  AND bri.driver_invoice_id = di.id
+                  AND di.status = 'pending'
             """),
-            {"pi_id": stripe_payment_intent_id, "invoice_ids": invoice_ids},
+            {"pi_id": stripe_payment_intent_id, "run_id": billing_run_id},
         )
 
 
@@ -239,6 +334,112 @@ def mark_run_needs_reconcile(
         """),
         {"pi_id": stripe_payment_intent_id, "run_id": billing_run_id},
     )
+
+
+# ---------------------------------------------------------------------------
+# Beta admin: list, promote, extend
+# ---------------------------------------------------------------------------
+
+
+def list_beta_drivers_with_exempt_stats(db: Session) -> list[dict[str, Any]]:
+    """
+    List drivers with billing_mode='beta', plus exempt invoice counts and amounts.
+    """
+    rows = db.execute(
+        text("""
+            SELECT
+                d.id,
+                d.display_name,
+                d.email,
+                d.mc_number,
+                d.billing_mode,
+                d.billing_exempt_until,
+                d.billing_exempt_reason,
+                d.stripe_customer_id,
+                d.stripe_default_payment_method_id,
+                d.created_at,
+                COALESCE(stats.exempt_count, 0)::int AS exempt_invoice_count,
+                COALESCE(stats.exempt_amount_cents, 0)::int AS exempt_amount_cents,
+                stats.last_exempt_date AS last_exempt_invoice_date
+            FROM public.drivers d
+            LEFT JOIN (
+                SELECT driver_id,
+                       COUNT(*) AS exempt_count,
+                       SUM(fee_amount_cents) AS exempt_amount_cents,
+                       MAX(COALESCE(paid_at, created_at)::date) AS last_exempt_date
+                FROM public.driver_invoices
+                WHERE is_exempt = TRUE
+                GROUP BY driver_id
+            ) stats ON stats.driver_id = d.id
+            WHERE d.billing_mode = 'beta'
+            ORDER BY d.created_at DESC
+        """),
+    ).mappings().all()
+
+    result = []
+    today = date.today()
+    for row in rows:
+        r = dict(row)
+        # Beta drivers are always exempt; others use exempt_until >= today
+        if (r.get("billing_mode") or "").lower() == "beta":
+            r["currently_exempt"] = True
+        else:
+            exempt_until = r.get("billing_exempt_until")
+            exempt_date = exempt_until.date() if isinstance(exempt_until, datetime) else exempt_until
+            r["currently_exempt"] = exempt_date is not None and exempt_date >= today
+        # Payment method presence: promotion will immediately gate until PM added
+        r["has_payment_method"] = has_payment_method(r)
+        result.append(r)
+    return result
+
+
+def promote_beta_to_paid(db: Session, driver_id: int) -> bool:
+    """
+    Set billing_mode='paid', clear exempt fields. Past invoices remain is_exempt.
+    Returns True if updated, False if driver not found or not beta.
+    """
+    row = db.execute(
+        text("""
+            UPDATE public.drivers
+            SET billing_mode = 'paid',
+                billing_exempt_until = NULL,
+                billing_exempt_reason = NULL,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE id = :driver_id AND billing_mode = 'beta'
+            RETURNING id
+        """),
+        {"driver_id": driver_id},
+    ).mappings().first()
+    return row is not None
+
+
+def extend_billing_exemption(
+    db: Session,
+    driver_id: int,
+    new_exempt_until: date,
+    reason: str | None = None,
+) -> bool:
+    """
+    Set billing_exempt_until = GREATEST(existing, new_date).
+    Only overwrite billing_exempt_reason if reason is non-empty.
+    Caller must validate new_exempt_until >= today.
+    Returns True if updated.
+    """
+    # Normalize to date (handles datetime if passed)
+    normalized_date = new_exempt_until.date() if isinstance(new_exempt_until, datetime) else new_exempt_until
+
+    row = db.execute(
+        text("""
+            UPDATE public.drivers
+            SET billing_exempt_until = GREATEST(COALESCE(billing_exempt_until, :new_date), :new_date),
+                billing_exempt_reason = COALESCE(NULLIF(TRIM(:reason), ''), billing_exempt_reason),
+                updated_at = CURRENT_TIMESTAMP
+            WHERE id = :driver_id
+            RETURNING id
+        """),
+        {"driver_id": driver_id, "new_date": normalized_date, "reason": (reason or "").strip()},
+    ).mappings().first()
+    return row is not None
 
 
 def set_driver_delinquent(db: Session, driver_id: int) -> None:

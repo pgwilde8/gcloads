@@ -1,0 +1,24 @@
+{% extends "layout/base.html" %}
+
+{% block title %}Add Payment Method | Green Candle Dispatch{% endblock %}
+
+{% block content %}
+<div class="max-w-2xl mx-auto mt-12 p-6 bg-gray-800 rounded-3xl border border-green-500/30">
+  <div class="flex items-center justify-between mb-6">
+    <h2 class="text-2xl font-black text-white">Add Payment Method</h2>
+    <a href="/drivers/dashboard" class="text-gray-400 hover:text-white text-sm font-bold transition">← Dashboard</a>
+  </div>
+
+  <p class="text-gray-400 text-sm mb-6">Add a card on file so you can send and negotiate loads when your trial ends. You won't be charged until you use paid features.</p>
+
+  {% if error %}
+  <div class="mb-4 p-3 rounded-xl bg-red-900/30 border border-red-500/40 text-red-200 text-sm">{{ error }}</div>
+  {% endif %}
+
+  <form method="post" action="/drivers/add-payment" class="space-y-4">
+    <button type="submit" class="w-full bg-green-600 hover:bg-green-500 text-white font-bold py-4 rounded-2xl shadow-lg transition-all active:scale-95">
+      Continue to add card
+    </button>
+  </form>
+</div>
+{% endblock %}

@@ -14,6 +14,7 @@ class DriverInvoice(Base):
     fee_rate                 = Column(Numeric(6, 4), nullable=False, default="0.0250")
     fee_amount_cents         = Column(Integer, nullable=False)
     status                   = Column(String(40), nullable=False, default="pending", index=True)
+    is_exempt                = Column(Boolean, nullable=False, default=False)
     billed_week_ending       = Column(Date, nullable=True)
     stripe_payment_intent_id = Column(String(255), nullable=True)
     created_at               = Column(TIMESTAMP(timezone=True), server_default=func.now(), nullable=False)
