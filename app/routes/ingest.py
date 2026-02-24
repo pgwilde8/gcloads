@@ -314,11 +314,34 @@ async def ingest_load(
 
     queued_negotiation_id: int | None = None
 
+    # ── Create notification for load match ──────────────────────────────────
+    def create_load_match_notification(db: Session, driver_id: int, load_data: dict, match_score: int):
+        """Create a LOAD_MATCH notification when Scout finds a good match."""
+        try:
+            message = f"🔥 New load match: {load_data.get('origin', 'Unknown')} → {load_data.get('destination', 'Unknown')} (${load_data.get('price', '0')})"
+            
+            db.execute(
+                text("""
+                    INSERT INTO driver_notifications (driver_id, notif_type, message, created_at)
+                    VALUES (:driver_id, 'LOAD_MATCH', :message, NOW())
+                """),
+                {"driver_id": driver_id, "message": message}
+            )
+            db.commit()
+        except Exception as e:
+            logger.warning(f"Failed to create LOAD_MATCH notification: {e}")
+            db.rollback()
+
     if next_step == "AUTO_SENT":
         neg, _ = _get_or_create_negotiation(
             db, load, driver, "Sent", match["score"], match
         )
         queued_negotiation_id = neg.id
+        create_load_match_notification(db, driver.id, {
+            "origin": load.origin,
+            "destination": load.destination,
+            "price": load.price
+        }, match["score"])
         if background_tasks is not None:
             background_tasks.add_task(
                 send_negotiation_email,
@@ -339,6 +362,11 @@ async def ingest_load(
             db, load, driver, "Queued", match["score"], match
         )
         queued_negotiation_id = neg.id
+        create_load_match_notification(db, driver.id, {
+            "origin": load.origin,
+            "destination": load.destination,
+            "price": load.price
+        }, match["score"])
         logger.info(
             "scout_ingest: NEEDS_APPROVAL load=%s driver=%s score=%s/4 neg=%s created=%s",
             load.id, driver.id, match["score"], neg.id, created,

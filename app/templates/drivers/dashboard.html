@@ -7,6 +7,9 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/htmx.org@1.9.10"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- Audio files for notifications -->
+    <audio id="cashSound" src="/static/audio/cash-register-purchase.wav" preload="auto"></audio>
+    <audio id="dingSound" src="/static/audio/ding-sound.mp3" preload="auto"></audio>
     <script>
     function copyText(id) {
         var el = document.getElementById(id);
@@ -707,7 +710,7 @@
 
         async function checkNotifications() {
             try {
-                const response = await fetch('/api/notifications/unread-count', { headers: { 'Accept': 'application/json' } });
+                const response = await fetch('/api/drivers/notifications/poll', { headers: { 'Accept': 'application/json' } });
                 if (!response.ok) {
                     return;
                 }
@@ -728,6 +731,17 @@
                 // polling is best-effort
             }
         }
+
+        // Audio notification handler
+        document.addEventListener('playNotificationSound', (e) => {
+            const notifType = e.detail.type;
+            
+            if (notifType === 'LOAD_WON') {
+                document.getElementById('cashSound').play();
+            } else if (notifType === 'LOAD_MATCH') {
+                document.getElementById('dingSound').play();
+            }
+        });
 
         document.addEventListener('DOMContentLoaded', () => {
             checkNotifications();

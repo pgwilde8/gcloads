@@ -28,6 +28,7 @@ from app.routes.admin import router as admin_router
 from app.routes.auth import router as auth_router
 from app.routes.ingest import router as ingest_router
 from app.routes.ingest import scout_router as scout_ingest_router
+from app.routes.notifications import router as notifications_router
 from app.routes.operations import router as operations_router
 from app.routes.payments import router as payments_router
 from app.routes.public import router as public_router
@@ -115,6 +116,7 @@ app.include_router(admin_router)
 app.include_router(auth_router)
 app.include_router(ingest_router)
 app.include_router(scout_ingest_router)
+app.include_router(notifications_router)
 app.include_router(operations_router)
 app.include_router(payments_router)
 app.include_router(public_router)
