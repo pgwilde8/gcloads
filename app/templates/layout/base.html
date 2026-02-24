@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>{% block title %}Green Candle Dispatch{% endblock %}</title>
+  <title>{% block title %}CoDriver Freight{% endblock %}</title>
   <link rel="icon" type="image/svg+xml" href="/static/images/favicon.svg">
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://unpkg.com/htmx.org@1.9.10"></script>
@@ -115,12 +115,12 @@
         if (res.ok) {
           const data = await res.json();
           responseId = data.response_id || data.conversation_id;
-          appendMessage('assistant', data.reply || 'Hey! I\'m the Green Candle AI. Looking for loads or want to hear about our 2.5% dispatch fee?');
+          appendMessage('assistant', data.reply || 'Hey! I\'m the CoDriver Freight AI. Looking for loads or want to hear about our 2.5% dispatch fee?');
           greetingShown = true;
         }
       } catch (e) {
         // Fallback greeting if API fails
-        appendMessage('assistant', 'Hey! I\'m the Green Candle AI. Looking for loads or want to hear about our 2.5% dispatch fee?');
+        appendMessage('assistant', 'Hey! I\'m the CoDriver Freight AI. Looking for loads or want to hear about our 2.5% dispatch fee?');
         greetingShown = true;
       }
     }

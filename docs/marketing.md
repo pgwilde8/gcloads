@@ -227,3 +227,29 @@ D) A rest-stop pitch handout
 Each one needs slightly different tone and emphasis.
 
 Pick the audience. We sharpen it.
+
+The Real Value You Offer
+
+A driver finds a load.
+
+Instead of:
+
+Copy/paste broker email
+
+Build packet
+
+Attach docs
+
+Negotiate manually
+
+Follow up
+
+Track conversations
+
+Remember which loads they called about
+
+Track billing
+
+They press one button.
+
+That’s your win.
