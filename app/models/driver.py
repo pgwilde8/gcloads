@@ -18,7 +18,6 @@ class Driver(Base):
 	factor_type = Column(String(30), nullable=True)
 	factor_packet_email = Column(String(255), nullable=True)
 	email_verified_at = Column(DateTime(timezone=True), nullable=True)
-	balance = Column(Float, nullable=False, default=1.0)
 	referral_started_at = Column(DateTime(timezone=True), nullable=True)
 	referral_expires_at = Column(DateTime(timezone=True), nullable=True, index=True)
 	stripe_customer_id = Column(String(255), nullable=True)

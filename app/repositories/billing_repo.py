@@ -103,6 +103,27 @@ def billing_bootstrap_for_driver(db: Session, driver_id: int) -> dict[str, Any]:
     }
 
 
+def go_live_clear_exemption(db: Session, driver_id: int) -> dict[str, Any] | None:
+    """
+    Driver-initiated: requires card on file (checked by caller).
+    Clears exemption immediately so weekly billing will charge next run.
+    Idempotent: if already paid + not exempt, caller can treat as success.
+    """
+    row = db.execute(
+        text("""
+            UPDATE public.drivers
+            SET
+                billing_mode = 'paid',
+                billing_exempt_until = NULL,
+                billing_exempt_reason = NULL
+            WHERE id = :driver_id
+            RETURNING id, billing_mode, billing_exempt_until
+        """),
+        {"driver_id": driver_id},
+    ).mappings().first()
+    return dict(row) if row else None
+
+
 def is_driver_billing_exempt(driver_info: dict[str, Any] | None, week_ending: date) -> bool:
     """
     True if driver should not be charged (beta or exempt_until covers this week).

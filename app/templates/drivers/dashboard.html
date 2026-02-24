@@ -25,13 +25,12 @@
             text-shadow: 0 0 10px rgba(74, 222, 128, 0.4);
             font-weight: 900;
         }
-        .fuel-bar { transition: width 1.5s ease-in-out; }
         body { background-color: #020617; } /* Slate-950 */
         details[open] summary .details-chevron { transform: rotate(180deg); }
         .details-chevron { transition: transform 0.2s ease; }
     </style>
 </head>
-<body class="text-slate-200 font-sans pb-24" style="--fuel-pct: {{ (((balance|default(0)) / 50) * 100)|round(0) }}">
+<body class="text-slate-200 font-sans pb-24">
 
     {% if show_beta_banner %}
     <div class="max-w-7xl mx-auto px-6 pt-4">
@@ -189,7 +188,7 @@
                             <i class="fas fa-radar text-xl"></i>
                         </div>
                         <h4 class="text-white font-bold text-sm">Scanning for Opportunities</h4>
-                        <p class="text-slate-500 text-[11px] mt-1.5 max-w-xs mx-auto">Your fuel is ready. Open your load board to deploy Scout and start a negotiation.</p>
+                        <p class="text-slate-500 text-[11px] mt-1.5 max-w-xs mx-auto">Open your load board to deploy Scout and start a negotiation.</p>
                         <a href="/drivers/load-board" class="mt-4 inline-block bg-white text-black font-bold text-[10px] px-5 py-2.5 rounded-full uppercase tracking-tighter hover:bg-blue-500 hover:text-white transition">
                             Open Load Board
                         </a>
@@ -259,44 +258,43 @@
             </div>
         </section>
 
-        <!-- Account & Usage (collapsible) -->
+        <!-- Billing & Trial Status (collapsible) -->
         <details class="mt-8 group">
             <summary class="flex items-center justify-between cursor-pointer list-none py-3 px-4 bg-slate-900/50 border border-slate-800 rounded-xl hover:bg-slate-800/30 transition text-slate-400 hover:text-white text-[10px] font-black uppercase tracking-widest">
-                <span>Account & Usage</span>
+                <span>Billing & Trial Status</span>
                 <i class="fas fa-chevron-down details-chevron"></i>
             </summary>
-            <div class="mt-2 space-y-3 pl-1">
-                <div class="bg-slate-900 border border-slate-800 rounded-2xl p-5">
-                    <div class="flex justify-between items-end mb-2">
-                        <span class="text-[9px] font-black text-slate-500 uppercase tracking-widest">Automation Fuel</span>
-                        <span class="text-lg font-black text-white neon-glow">{{ "%.1f"|format(balance) }} <span class="text-xs text-blue-500">$CANDLE</span></span>
-                    </div>
-                    <div class="w-full bg-slate-800 h-1.5 rounded-full overflow-hidden">
-                        <div class="bg-blue-500 h-full fuel-bar" style="width: calc(var(--fuel-pct) * 1%)"></div>
-                    </div>
-                </div>
+            <div class="mt-2 pl-1">
                 <div class="bg-slate-900 border border-slate-800 rounded-2xl p-5">
                     <h3 class="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-3 flex items-center gap-2">
-                        <i class="fas fa-gas-pump text-blue-500"></i> Automation Fuel Costs
+                        <i class="fas fa-credit-card text-blue-500"></i> Account
                     </h3>
-                    <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                        <div class="bg-slate-800/50 rounded-xl p-3 border border-slate-700">
-                            <div class="text-slate-400 text-[10px] uppercase font-bold">Negotiation / Counter</div>
-                            <div class="text-white font-black text-sm mt-1">0.5 <span class="text-blue-500 text-[10px]">$CANDLE</span></div>
+                    <div class="space-y-2 text-sm">
+                        <div class="flex justify-between items-center">
+                            <span class="text-slate-400">Mode</span>
+                            <span class="text-white font-bold">{{ (billing_bootstrap.billing_mode or 'paid')|capitalize }}</span>
                         </div>
-                        <div class="bg-slate-800/50 rounded-xl p-3 border border-slate-700">
-                            <div class="text-slate-400 text-[10px] uppercase font-bold">Voice Escalation</div>
-                            <div class="text-white font-black text-sm mt-1">0.5 <span class="text-blue-500 text-[10px]">$CANDLE</span></div>
+                        {% if (billing_bootstrap.billing_mode or '').lower() == 'beta' or billing_bootstrap.is_currently_billing_exempt %}
+                        <div class="flex justify-between items-center">
+                            <span class="text-slate-400">Exempt until</span>
+                            <span class="text-green-400 font-bold">{{ billing_bootstrap.billing_exempt_until or '—' }}</span>
                         </div>
-                        <div class="bg-slate-800/50 rounded-xl p-3 border border-slate-700">
-                            <div class="text-slate-400 text-[10px] uppercase font-bold">Factoring Packet</div>
-                            <div class="text-white font-black text-sm mt-1">0.3 <span class="text-blue-500 text-[10px]">$CANDLE</span></div>
-                        </div>
-                        <div class="bg-slate-800/50 rounded-xl p-3 border border-slate-700">
-                            <div class="text-slate-400 text-[10px] uppercase font-bold">Full Dispatch (Booked)</div>
-                            <div class="text-green-400 font-black text-sm mt-1">10 <span class="text-blue-500 text-[10px]">$CANDLE</span></div>
+                        {% endif %}
+                        <div class="flex justify-between items-center">
+                            <span class="text-slate-400">Payment method</span>
+                            <span class="font-bold {{ 'text-green-400' if billing_bootstrap.has_payment_method else 'text-amber-400' }}">
+                                {{ 'On file' if billing_bootstrap.has_payment_method else 'Not added' }}
+                            </span>
                         </div>
                     </div>
+                    {% if billing_bootstrap.has_payment_method and ((billing_bootstrap.billing_mode or '').lower() == 'beta' or billing_bootstrap.is_currently_billing_exempt) %}
+                    <button type="button" onclick="document.getElementById('go-live-modal').classList.remove('hidden')"
+                            class="mt-4 w-full bg-green-600 hover:bg-green-500 text-white font-bold text-sm py-3 px-4 rounded-xl transition">
+                        <i class="fas fa-rocket mr-2"></i> Go Live
+                    </button>
+                    {% else %}
+                    <a href="/drivers/add-payment" class="mt-4 inline-block text-blue-400 hover:text-blue-300 text-xs font-bold">Billing & Payment →</a>
+                    {% endif %}
                 </div>
             </div>
         </details>
@@ -306,6 +304,23 @@
 
     <div id="rate-settings-toast" class="hidden fixed top-4 right-4 z-[120] bg-emerald-600 text-white text-xs font-black uppercase tracking-wider px-4 py-3 rounded-xl shadow-lg shadow-emerald-900/40">
         Settings Updated
+    </div>
+
+    <div id="go-live-modal" class="hidden fixed inset-0 bg-black/90 backdrop-blur-md z-[100] flex items-center justify-center p-4">
+        <div class="bg-slate-900 border-2 border-green-500/20 rounded-2xl p-8 max-w-md w-full shadow-xl">
+            <h3 class="text-xl font-black text-white mb-2">Go Live</h3>
+            <p class="text-slate-400 text-sm mb-6">Going live ends your free period now. You'll be billed on the next weekly billing run.</p>
+            <div class="flex gap-3">
+                <button type="button" onclick="document.getElementById('go-live-modal').classList.add('hidden')"
+                        class="flex-1 bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold py-3 rounded-xl transition">
+                    Cancel
+                </button>
+                <button type="button" id="go-live-confirm" onclick="runGoLive(this)"
+                        class="flex-1 bg-green-600 hover:bg-green-500 text-white font-bold py-3 rounded-xl transition">
+                    <i class="fas fa-rocket mr-2"></i> Go Live
+                </button>
+            </div>
+        </div>
     </div>
 
     <nav class="fixed bottom-6 left-1/2 -translate-x-1/2 bg-slate-900/80 backdrop-blur-xl border border-slate-800 p-2 rounded-2xl shadow-2xl z-50">
@@ -342,6 +357,34 @@
     {% endif %}
 
     <script>
+        async function runGoLive(buttonEl) {
+            if (!buttonEl) return;
+            buttonEl.disabled = true;
+            buttonEl.innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i> Going live...';
+            try {
+                const response = await fetch('/api/drivers/go-live', {
+                    method: 'POST',
+                    headers: { 'Accept': 'application/json' },
+                });
+                const data = await response.json();
+                if (response.ok && (data.status === 'ok' || data.ok === true)) {
+                    document.getElementById('go-live-modal').classList.add('hidden');
+                    window.location.reload();
+                    return;
+                }
+                if (response.status === 402 && (data.stripe_setup_required || data.code === 'payment_method_required')) {
+                    window.location.href = '/drivers/add-payment';
+                    return;
+                }
+                alert(data.message || 'Could not go live. Please try again.');
+            } catch (_) {
+                alert('Network error. Please try again.');
+            } finally {
+                buttonEl.disabled = false;
+                buttonEl.innerHTML = '<i class="fas fa-rocket mr-2"></i> Go Live';
+            }
+        }
+
         async function runRetrySecureEmail(negotiationId, buttonEl) {
             if (!negotiationId) {
                 return;

@@ -25,6 +25,8 @@ Accounting identity used by the engine:
 
 `total_fee = driver_credits + infra_reserve + treasury + platform_profit_net + referral_bounty_paid`
 
+**Note:** `slice_driver_credits` is the driver's share of the fee in the revenue allocation model—recorded in `fee_ledger` for accounting. It is **not** a spendable wallet or balance. (The legacy `drivers.balance` wallet was removed; referrals never depended on it.)
+
 ## Tables
 Migration: `migrations/004_revenue_ledger.sql`
 

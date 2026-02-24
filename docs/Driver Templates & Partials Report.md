@@ -10,11 +10,11 @@ Packet readiness panel (included partial)
 Recent Scout Activity (last 5 ingests)
 Scout status (HTMX, 60s poll)
 Active negotiations (HTMX, 30s poll)
-Automation Fuel balance
+Billing & Trial Status (collapsible)
 Rate settings modal trigger
 Bottom nav (Dashboard, Negotiations, Scout Loads, Scout Setup, Paperwork, Help)
 Help drawer (included partial)
-Dependencies: balance, trucker, packet_readiness, scout_activity, driver_email, assigned_handle, show_beta_banner, user
+Dependencies: billing_bootstrap, trucker, packet_readiness, scout_activity, driver_email, assigned_handle, show_beta_banner, user
 driver_uploads.html (~179 lines)
 Purpose: Paperwork – BOL uploads and send-to-factoring for won loads.
 Features:
@@ -33,7 +33,7 @@ Purpose: Staging area for Scout loads.
 Features:
 “Top Available Loads” list (origin → destination, equipment, price)
 “Deploy Scout” buttons (non-functional – no real Scout launch)
-Dependencies: balance, loads
+Dependencies: loads
 century_apply.html (~76 lines)
 Purpose: Century Finance factoring application form.
 Layout: Extends layout/base.html.

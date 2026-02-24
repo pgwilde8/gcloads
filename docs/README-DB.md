@@ -88,7 +88,7 @@ SELECT id, display_name, email FROM public.drivers WHERE id = 1;
 
 to see tables:docker exec -it gcloads_db psql -U gcd_admin -d gcloads_db -c "\dt"
 
-add test driver:docker exec -it gcloads_db psql -U gcd_admin -d gcloads_db -c "INSERT INTO drivers (display_name, email, mc_number, balance, auto_negotiate, review_before_send) VALUES ('pgwilde', 'techsmartmarketing8@gmail.com', 'MC123456', 0.0, true, true);"
+add test driver:docker exec -it gcloads_db psql -U gcd_admin -d gcloads_db -c "INSERT INTO drivers (display_name, email, mc_number, auto_negotiate, review_before_send) VALUES ('pgwilde', 'techsmartmarketing8@gmail.com', 'MC123456', true, true);"
 
 docker exec -it gcloads_db psql -U gcd_admin -d gcloads_db -c "\d negotiations"
 ====================

@@ -43,6 +43,9 @@ from app.services.stripe_fees import StripeConfigError, create_setup_checkout_se
 from app.repositories.billing_repo import (
     billing_bootstrap_for_driver,
     extend_billing_exemption,
+    get_driver_stripe_info,
+    go_live_clear_exemption,
+    is_driver_billing_exempt,
     list_beta_drivers_with_exempt_stats,
     promote_beta_to_paid,
 )
@@ -1575,14 +1578,12 @@ async def driver_uploads_page(
     if gate_redirect:
         return RedirectResponse(url=gate_redirect, status_code=302)
 
-    balance = float(selected_driver.balance) if selected_driver else 25.0
-
+    billing_bootstrap = billing_bootstrap_for_driver(db, selected_driver.id) if selected_driver else {}
     return templates.TemplateResponse(
         "drivers/driver_uploads.html",
         {
             "request": request,
-            "balance": balance,
-            "won_loads": [],
+            "billing_bootstrap": billing_bootstrap,
             "user": selected_driver,
         },
     )
@@ -1629,6 +1630,53 @@ async def get_billing_bootstrap(
     if exempt_until:
         out["billing_exempt_until"] = exempt_until.isoformat() if hasattr(exempt_until, "isoformat") else str(exempt_until)
     return out
+
+
+@app.post("/api/drivers/go-live")
+async def go_live(
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    """Driver-initiated: clear exemption, become paid. Requires payment method on file. Idempotent."""
+    selected_driver = _session_driver(request, db)
+    if not selected_driver:
+        return JSONResponse(status_code=401, content={"message": "auth_required"})
+
+    driver_info = get_driver_stripe_info(db, selected_driver.id)
+    if not driver_info:
+        return JSONResponse(status_code=403, content={"message": "Driver not found"})
+
+    has_pm = bool(
+        driver_info.get("stripe_customer_id") and driver_info.get("stripe_default_payment_method_id")
+    )
+    if not has_pm:
+        return JSONResponse(
+            status_code=402,
+            content={
+                "message": "Add a payment method before going live.",
+                "code": "payment_method_required",
+                "stripe_setup_required": True,
+            },
+        )
+
+    today = date.today()
+    currently_exempt = is_driver_billing_exempt(driver_info, today)
+    if driver_info.get("billing_mode") == "paid" and not currently_exempt:
+        return {
+            "status": "ok",
+            "billing_mode": "paid",
+            "billing_exempt_until": None,
+        }
+
+    updated = go_live_clear_exemption(db, selected_driver.id)
+    db.commit()
+
+    return {
+        "status": "ok",
+        "billing_mode": "paid",
+        "billing_exempt_until": None,
+        "message": "You're live. Billing will begin on the next weekly run.",
+    }
 
 
 @app.get("/api/notifications/unread-count")

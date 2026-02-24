@@ -43,6 +43,7 @@ def _parse_load_value(load_value: str | int | float | Decimal) -> Decimal:
 
 
 def _compute_slices(total_fee: Decimal) -> dict[str, Decimal]:
+    # driver_credits = driver's revenue share slice (accounting), not a wallet.
     slice_driver_credits = _money(total_fee * _to_decimal(settings.SLICE_DRIVER_CREDITS_RATE))
     slice_infra_reserve = _money(total_fee * _to_decimal(settings.SLICE_INFRA_RESERVE_RATE))
     slice_treasury = _money(total_fee * _to_decimal(settings.SLICE_TREASURY_RATE))

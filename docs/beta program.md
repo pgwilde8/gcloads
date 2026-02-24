@@ -121,6 +121,8 @@ Result: Beta users get links back to beta; prod users get prod links.
 - `POST /admin/beta/promote` — set `billing_mode='paid'`, clear exempt fields
 - `POST /admin/beta/extend` — set `billing_exempt_until = GREATEST(existing, new_date)`
 
+**Go Live (driver-initiated):** `POST /api/drivers/go-live` — requires payment method on file; sets `billing_mode='paid'`, clears exemption. Idempotent. No Stripe calls; billing happens on next weekly run.
+
 **Promote behavior:**
 - Driver becomes immediately non-exempt
 - Past invoices remain `is_exempt = true` (not modified)
@@ -223,3 +225,4 @@ Result: Beta users get links back to beta; prod users get prod links.
 - `migrations/020_driver_billing_mode.sql` — `billing_mode`, `billing_exempt_until`, `billing_exempt_reason`
 - `migrations/021_driver_invoices_is_exempt.sql` — `is_exempt` on driver_invoices
 - `migrations/022_driver_invoices_exempt_pi_check.sql` — CHECK constraint for exempt/Stripe consistency
+- `migrations/023_drop_drivers_balance.sql` — drops legacy `balance` column (credits removal Phase 2)
