@@ -17,6 +17,7 @@ class Load(Base):
     price = Column(String) # We store as string first to handle "$" symbols
     equipment_type = Column(String)
     contact_instructions = Column(String(20), nullable=False, default="email")
+    broker_match_status = Column(String(30), nullable=True, index=True)  # resolved|unknown_mc|missing_mc|malformed_mc
     load_metadata = Column("metadata", JSONB, nullable=True)
     raw_data = Column(String, nullable=True)
     ingested_by_driver_id = Column(Integer, ForeignKey("drivers.id", ondelete="SET NULL"), nullable=True, index=True)

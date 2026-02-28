@@ -1,41 +1,170 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Load Board</title>
-  <script src="https://cdn.tailwindcss.com"></script>
-  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Load History | CoDriver Freight</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>body { background-color: #020617; }</style>
 </head>
-<body class="bg-slate-950 text-slate-200 min-h-screen pb-24">
-  <main class="max-w-6xl mx-auto p-6 space-y-6">
-    <div class="flex items-center justify-between">
-      <h1 class="text-2xl font-black text-white">Load Board</h1>
-      <a href="/drivers/dashboard" class="text-blue-400 hover:text-blue-300 text-sm font-bold">← Back to Dashboard</a>
-    </div>
+<body class="text-slate-200 font-sans pb-24 bg-slate-950">
 
-    <section class="bg-slate-900 border border-slate-800 rounded-2xl p-6">
-      <p class="text-slate-300 text-sm">This minimal room is live. Use this as your staging area for launching negotiations from available Scout loads.</p>
-    </section>
-
-    <section class="bg-slate-900 border border-slate-800 rounded-2xl p-6">
-      <h2 class="text-white font-bold mb-3">Top Available Loads</h2>
-      {% if loads and loads|length > 0 %}
-        <div class="space-y-3">
-          {% for load in loads %}
-          <div class="bg-slate-800/50 border border-slate-700 p-4 rounded-xl flex justify-between items-center">
-            <div>
-              <p class="text-white font-bold">{{ load.origin }} → {{ load.destination }}</p>
-              <p class="text-slate-400 text-xs">{{ load.equipment_type }} | {{ load.price }}</p>
+    <header class="p-6 bg-slate-900 border-b border-slate-800 sticky top-0 z-50 shadow-2xl">
+        <div class="max-w-4xl mx-auto flex items-center justify-between gap-4">
+            <div class="flex items-center gap-3">
+                <div class="bg-slate-700 p-2.5 rounded-xl">
+                    <i class="fas fa-history text-slate-300 text-lg"></i>
+                </div>
+                <div>
+                    <h1 class="text-white font-black text-base tracking-tight">Load History</h1>
+                    <p class="text-slate-500 text-[10px] uppercase font-bold tracking-widest">All loads Scout has found for you</p>
+                </div>
             </div>
-            <button class="bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs px-3 py-2 rounded-lg">Deploy Scout</button>
-          </div>
-          {% endfor %}
+            <a href="/drivers/dashboard" class="text-slate-400 hover:text-white text-sm font-bold transition flex items-center gap-2">
+                <i class="fas fa-arrow-left text-xs"></i> Dashboard
+            </a>
         </div>
-      {% else %}
-        <p class="text-slate-500 text-sm">No active loads available yet.</p>
-      {% endif %}
-    </section>
-  </main>
+    </header>
+
+    <main class="max-w-4xl mx-auto p-6 space-y-4">
+
+        {# ── Status legend ───────────────────────────────────────────────── #}
+        <div class="flex flex-wrap gap-3 text-[10px] font-black uppercase tracking-widest">
+            <span class="flex items-center gap-1.5 text-slate-500"><span class="w-2 h-2 rounded-full bg-slate-600 inline-block"></span>No bid yet</span>
+            <span class="flex items-center gap-1.5 text-yellow-400"><span class="w-2 h-2 rounded-full bg-yellow-500 inline-block"></span>Needs approval</span>
+            <span class="flex items-center gap-1.5 text-blue-400"><span class="w-2 h-2 rounded-full bg-blue-500 inline-block"></span>Bid sent</span>
+            <span class="flex items-center gap-1.5 text-purple-400"><span class="w-2 h-2 rounded-full bg-purple-500 inline-block"></span>In negotiation</span>
+            <span class="flex items-center gap-1.5 text-green-400"><span class="w-2 h-2 rounded-full bg-green-500 inline-block"></span>Won</span>
+            <span class="flex items-center gap-1.5 text-red-400"><span class="w-2 h-2 rounded-full bg-red-500 inline-block"></span>Lost / Closed</span>
+        </div>
+
+        {# ── Load list ───────────────────────────────────────────────────── #}
+        {% if history %}
+        <div class="space-y-3">
+            {% for item in history %}
+            {% set load = item.load %}
+            {% set neg = item.negotiation %}
+            {% set status = item.neg_status or '' %}
+
+            {# Determine badge style from negotiation status #}
+            {% if status == 'WON' %}
+                {% set badge = 'bg-green-900/40 text-green-300 border-green-700' %}
+                {% set dot = 'bg-green-500' %}
+                {% set label = 'Won' %}
+                {% set border = 'border-green-800/50' %}
+            {% elif status in ['LOST', 'CLOSED', 'CLOSED_PENDING_EMAIL'] %}
+                {% set badge = 'bg-red-900/30 text-red-400 border-red-800' %}
+                {% set dot = 'bg-red-500' %}
+                {% set label = 'Closed' %}
+                {% set border = 'border-slate-800' %}
+            {% elif status in ['Sent', 'AUTO_SENT', 'RATE_CON_RECEIVED', 'RATE_CON_SIGNED'] %}
+                {% set badge = 'bg-blue-900/30 text-blue-300 border-blue-800' %}
+                {% set dot = 'bg-blue-500' %}
+                {% set label = 'Bid Sent' %}
+                {% set border = 'border-blue-900/40' %}
+            {% elif status in ['Queued', 'NEEDS_APPROVAL'] %}
+                {% set badge = 'bg-yellow-900/30 text-yellow-300 border-yellow-800' %}
+                {% set dot = 'bg-yellow-500' %}
+                {% set label = 'Needs Approval' %}
+                {% set border = 'border-yellow-900/30' %}
+            {% elif status == 'Draft' %}
+                {% set badge = 'bg-purple-900/30 text-purple-300 border-purple-800' %}
+                {% set dot = 'bg-purple-500' %}
+                {% set label = 'In Progress' %}
+                {% set border = 'border-purple-900/30' %}
+            {% else %}
+                {% set badge = 'bg-slate-800 text-slate-400 border-slate-700' %}
+                {% set dot = 'bg-slate-500' %}
+                {% set label = 'No bid' %}
+                {% set border = 'border-slate-800' %}
+            {% endif %}
+
+            <div class="bg-slate-900 border {{ border }} rounded-2xl p-4 flex items-center justify-between gap-4 hover:border-slate-600 transition">
+                <div class="flex-1 min-w-0">
+                    <div class="flex items-center gap-2 flex-wrap">
+                        <span class="text-white font-bold text-sm">
+                            {{ load.origin or '—' }} → {{ load.destination or '—' }}
+                        </span>
+                        {% if load.ref_id %}
+                        <span class="text-slate-600 text-xs font-mono">#{{ load.ref_id }}</span>
+                        {% endif %}
+                    </div>
+                    <div class="flex flex-wrap gap-3 mt-1 text-xs text-slate-500">
+                        {% if load.price %}
+                        <span><i class="fas fa-dollar-sign mr-1 text-green-500 text-[10px]"></i>{{ load.price }}</span>
+                        {% endif %}
+                        {% if load.equipment_type %}
+                        <span><i class="fas fa-truck mr-1 text-[10px]"></i>{{ load.equipment_type }}</span>
+                        {% endif %}
+                        {% if load.source_platform %}
+                        <span><i class="fas fa-satellite-dish mr-1 text-[10px]"></i>{{ load.source_platform }}</span>
+                        {% endif %}
+                        {% if load.created_at %}
+                        <span class="text-slate-600">{{ load.created_at.strftime('%b %d') }}</span>
+                        {% endif %}
+                    </div>
+                </div>
+
+                <div class="flex items-center gap-3 shrink-0">
+                    <span class="text-[10px] font-black uppercase tracking-widest px-2.5 py-1 rounded-full border {{ badge }} flex items-center gap-1.5">
+                        <span class="w-1.5 h-1.5 rounded-full {{ dot }} inline-block"></span>
+                        {{ label }}
+                    </span>
+                    {% if neg %}
+                    <a href="/drivers/negotiations?neg={{ neg.id }}"
+                       class="text-slate-500 hover:text-white text-xs font-bold transition flex items-center gap-1">
+                        View <i class="fas fa-arrow-right text-[10px]"></i>
+                    </a>
+                    {% endif %}
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+
+        {% else %}
+        {# ── Empty state ─────────────────────────────────────────────────── #}
+        <div class="bg-slate-900 border border-slate-800 rounded-2xl p-14 text-center">
+            <div class="bg-slate-800 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4 text-slate-600">
+                <i class="fas fa-satellite-dish text-2xl"></i>
+            </div>
+            <h4 class="text-white font-bold">No loads captured yet</h4>
+            <p class="text-slate-500 text-sm mt-2 max-w-sm mx-auto">
+                Install the Scout extension and browse a load board. Every load you open gets captured here automatically.
+            </p>
+            <div class="flex flex-col sm:flex-row gap-3 justify-center mt-6">
+                <a href="/drivers/scout-setup" class="bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs px-6 py-3 rounded-full uppercase tracking-tighter transition">
+                    Set Up Scout
+                </a>
+                <a href="/drivers/scout-loads" class="bg-slate-800 hover:bg-slate-700 text-white font-bold text-xs px-6 py-3 rounded-full uppercase tracking-tighter transition">
+                    Scout Loads Feed
+                </a>
+            </div>
+        </div>
+        {% endif %}
+
+    </main>
+
+    {# Bottom nav #}
+    <nav class="fixed bottom-6 left-1/2 -translate-x-1/2 bg-slate-900/80 backdrop-blur-xl border border-slate-800 p-2 rounded-2xl shadow-2xl z-50">
+        <div class="flex items-center gap-1">
+            <a href="/drivers/dashboard" class="text-slate-400 hover:text-white px-6 py-2 rounded-xl text-xs font-bold transition flex items-center gap-2">
+                <i class="fas fa-home"></i> Dashboard
+            </a>
+            <a href="/drivers/scout-loads" class="text-slate-400 hover:text-white px-6 py-2 rounded-xl text-xs font-bold transition flex items-center gap-2">
+                <i class="fas fa-satellite-dish"></i> Scout Loads
+            </a>
+            <a href="/drivers/load-board" class="bg-slate-700 text-white px-6 py-2 rounded-xl text-xs font-bold flex items-center gap-2">
+                <i class="fas fa-history"></i> History
+            </a>
+            <a href="/drivers/negotiations" class="text-slate-400 hover:text-white px-6 py-2 rounded-xl text-xs font-bold transition flex items-center gap-2">
+                <i class="fas fa-comments"></i> Negotiations
+            </a>
+            <a href="/drivers/uploads" class="text-slate-400 hover:text-white px-6 py-2 rounded-xl text-xs font-bold transition flex items-center gap-2">
+                <i class="fas fa-file-upload"></i> Paperwork
+            </a>
+        </div>
+    </nav>
+
 </body>
 </html>

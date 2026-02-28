@@ -17,6 +17,8 @@ from typing import Any
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
+from app.services.broker_intelligence import normalize_mc, _mc_candidates
+
 logger = logging.getLogger(__name__)
 
 _EMAIL_RE = re.compile(r"^[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}$")
@@ -50,17 +52,21 @@ def promote_scout_contact(
     No-ops silently if mc_number is absent or broker is not in the vault.
     All writes are gap-fills only — existing values are never overwritten.
     """
+    mc_number = normalize_mc(mc_number)
     if not mc_number:
         return
 
+    candidates = _mc_candidates(mc_number)
     broker_row = db.execute(
         text("""
             SELECT mc_number, primary_email, primary_phone, dot_number,
                    preferred_contact_method
             FROM webwise.brokers
-            WHERE mc_number = :mc
+            WHERE mc_number = ANY(:candidates)
+            ORDER BY company_name NULLS LAST
+            LIMIT 1
         """),
-        {"mc": mc_number},
+        {"candidates": candidates},
     ).mappings().first()
 
     if not broker_row:
@@ -113,7 +119,9 @@ def promote_scout_contact(
 
     if updates:
         set_clause = ", ".join(f"{col} = :{col}" for col in updates)
-        updates["mc"] = mc_number
+        # Use the canonical mc_number from the matched row, not the raw input,
+        # so we always write back to the padded record (e.g. "009153" not "9153").
+        updates["mc"] = broker_row["mc_number"]
         db.execute(
             text(f"UPDATE webwise.brokers SET {set_clause} WHERE mc_number = :mc"),
             updates,

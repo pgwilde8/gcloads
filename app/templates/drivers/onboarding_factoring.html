@@ -24,8 +24,9 @@
     </div>
 
     <div>
-      <label class="text-xs font-bold text-gray-400 uppercase">Factor Packet Email (required if Yes)</label>
-      <input type="email" name="factor_packet_email" value="{{ driver.factor_packet_email or '' }}" class="w-full bg-gray-900 border border-gray-700 p-3 rounded-xl text-white" placeholder="ops@yourfactor.com">
+      <label class="text-xs font-bold text-gray-400 uppercase">Where does your factoring company want you to send load packets?</label>
+      <input type="email" name="factor_packet_email" value="{{ driver.factor_packet_email or '' }}" class="w-full bg-gray-900 border border-gray-700 p-3 rounded-xl text-white" placeholder="e.g. packets@yourfactor.com">
+      <p class="text-[11px] text-gray-500 mt-1">This is the email address your factoring company gave you to submit rate cons and BOLs — not your personal login. Leave blank if you selected No.</p>
     </div>
 
     <button type="submit" class="w-full bg-green-600 hover:bg-green-500 text-white font-bold py-4 rounded-2xl shadow-lg transition-all active:scale-95">

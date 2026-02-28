@@ -1280,6 +1280,7 @@ async def upload_packet(
         "mc_auth": "mc_auth.pdf",
         "coi": "coi.pdf",
         "w9": "w9.pdf",
+        "voided_check": "voided_check.pdf",
     }
 
     if doc_type and file is not None:
@@ -1332,6 +1333,7 @@ async def upload_packet(
                 "mc_auth": "MC Authority",
                 "coi": "Insurance (COI)",
                 "w9": "W9 Form",
+                "voided_check": "Voided Check",
             }
             label = label_map.get(doc_key, canonical_name)
             html = (
@@ -1484,12 +1486,12 @@ async def driver_dashboard(
     packet_readiness = packet_readiness_for_driver(db, selected_driver.id) if selected_driver else {
         "docs": [],
         "uploaded_count": 0,
-        "required_count": 3,
+        "required_count": 4,
         "is_ready": False,
         "ready": False,
         "uploaded": [],
-        "missing": ["w9", "coi", "mc_auth"],
-        "missing_labels": ["W-9", "COI", "MC Auth"],
+        "missing": ["w9", "coi", "mc_auth", "voided_check"],
+        "missing_labels": ["W-9", "COI", "MC Auth", "Voided Check"],
     }
 
     scout_activity: list = []
@@ -1516,6 +1518,18 @@ async def driver_dashboard(
         or billing_bootstrap.get("is_currently_billing_exempt", False)
     )
 
+    # Trial / activation banner context
+    from app.services.billing_gate import (
+        maybe_flip_trial_expired, trial_days_remaining,
+    )
+    trial_days_left: int | None = None
+    billing_status_val = "active"
+    if selected_driver:
+        if maybe_flip_trial_expired(selected_driver, db):
+            db.commit()
+        billing_status_val = (selected_driver.billing_status or "trial").lower()
+        trial_days_left = trial_days_remaining(selected_driver)
+
     return templates.TemplateResponse(
         "drivers/dashboard.html",
         {
@@ -1533,6 +1547,8 @@ async def driver_dashboard(
             "packet_readiness": packet_readiness,
             "user": selected_driver,
             "scout_activity": scout_activity,
+            "billing_status": billing_status_val,
+            "trial_days_left": trial_days_left,
         },
     )
 
@@ -1581,12 +1597,74 @@ async def driver_uploads_page(
         return RedirectResponse(url=gate_redirect, status_code=302)
 
     billing_bootstrap = billing_bootstrap_for_driver(db, selected_driver.id) if selected_driver else {}
+
+    # Fetch all won negotiations with their loads and doc state
+    won_rows = (
+        db.query(Negotiation, Load)
+        .join(Load, Load.id == Negotiation.load_id)
+        .filter(
+            Negotiation.driver_id == selected_driver.id,
+            Negotiation.status == "WON",
+        )
+        .order_by(Negotiation.id.desc())
+        .all()
+    )
+
+    won_loads = []
+    for neg, load in won_rows:
+        neg_docs = get_active_documents(
+            db,
+            driver_id=selected_driver.id,
+            negotiation_id=neg.id,
+            doc_types=["BOL_RAW", "BOL_PDF", "BOL_PACKET", "RATECON"],
+        )
+        doc_types_present = {str(d.get("doc_type") or "") for d in neg_docs}
+
+        has_bol = "BOL_PDF" in doc_types_present or "BOL_RAW" in doc_types_present
+        has_bol_packet = "BOL_PACKET" in doc_types_present
+        has_ratecon = "RATECON" in doc_types_present
+        is_factored = (neg.factoring_status or "").lower() == "sent"
+
+        if is_factored:
+            stage = "factored"
+            stage_label = "Factored"
+            stage_color = "green"
+        elif has_bol_packet:
+            stage = "ready_to_factor"
+            stage_label = "Ready to Factor"
+            stage_color = "blue"
+        elif has_bol:
+            stage = "bol_uploaded"
+            stage_label = "BOL Uploaded"
+            stage_color = "yellow"
+        elif has_ratecon:
+            stage = "rate_con_signed"
+            stage_label = "Rate Con Signed"
+            stage_color = "purple"
+        else:
+            stage = "awaiting_bol"
+            stage_label = "Awaiting BOL"
+            stage_color = "slate"
+
+        won_loads.append({
+            "negotiation": neg,
+            "load": load,
+            "stage": stage,
+            "stage_label": stage_label,
+            "stage_color": stage_color,
+            "has_bol": has_bol,
+            "has_bol_packet": has_bol_packet,
+            "has_ratecon": has_ratecon,
+            "is_factored": is_factored,
+        })
+
     return templates.TemplateResponse(
         "drivers/driver_uploads.html",
         {
             "request": request,
             "billing_bootstrap": billing_bootstrap,
             "user": selected_driver,
+            "won_loads": won_loads,
         },
     )
 
@@ -1804,16 +1882,40 @@ async def driver_scout_loads(request: Request, tab: str = "loads", db: Session =
 @app.get("/drivers/load-board")
 async def driver_load_board(request: Request, db: Session = Depends(get_db)):
     selected_driver = _session_driver(request, db)
+    if not selected_driver:
+        return RedirectResponse(url="/start", status_code=302)
     gate_redirect = _onboarding_gate_redirect(selected_driver)
     if gate_redirect:
         return RedirectResponse(url=gate_redirect, status_code=302)
 
-    loads = db.query(Load).order_by(Load.created_at.desc()).limit(10).all()
+    # All loads Scout has ever captured for this driver, newest first
+    # Join to negotiations so we can show status per load
+    rows = (
+        db.query(Load, Negotiation)
+        .outerjoin(
+            Negotiation,
+            (Negotiation.load_id == Load.id) & (Negotiation.driver_id == selected_driver.id),
+        )
+        .filter(Load.ingested_by_driver_id == selected_driver.id)
+        .order_by(Load.created_at.desc())
+        .limit(100)
+        .all()
+    )
+
+    history = []
+    for load, neg in rows:
+        history.append({
+            "load": load,
+            "negotiation": neg,
+            "neg_status": neg.status if neg else None,
+        })
+
     return templates.TemplateResponse(
         "drivers/load_board.html",
         {
             "request": request,
-            "loads": loads,
+            "driver": selected_driver,
+            "history": history,
         },
     )
 
@@ -1900,10 +2002,18 @@ async def driver_add_payment_post(request: Request, db: Session = Depends(get_db
 
 @app.get("/drivers/scout-setup")
 async def driver_scout_setup_get(request: Request, db: Session = Depends(get_db)):
+    import secrets as _secrets
     driver = _session_driver(request, db)
     gate_redirect = _onboarding_gate_redirect(driver)
     if gate_redirect:
         return RedirectResponse(url=gate_redirect, status_code=302)
+
+    # Auto-generate key on first visit if never set
+    if driver and not driver.scout_api_key:
+        new_key = _secrets.token_hex(32)
+        db.execute(text("UPDATE public.drivers SET scout_api_key = :key WHERE id = :id"), {"key": new_key, "id": driver.id})
+        db.commit()
+        driver.scout_api_key = new_key
 
     return templates.TemplateResponse(
         "drivers/scout_setup.html",
@@ -1922,6 +2032,7 @@ async def driver_scout_setup_post(request: Request, db: Session = Depends(get_db
     if not driver:
         return RedirectResponse(url="/drivers/dashboard", status_code=302)
 
+    form = await request.form()
     from sqlalchemy import text as _text
     db.execute(
         _text("""

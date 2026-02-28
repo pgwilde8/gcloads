@@ -385,3 +385,70 @@ def send_century_approval_email(*, to_email: str, driver_name: str | None = None
         return False
 
     return True
+
+
+def send_driver_alert_email(
+    *,
+    to_email: str,
+    driver_name: str | None,
+    next_step: str,
+    origin: str,
+    destination: str,
+    price: str,
+    match_score: int,
+    dashboard_url: str | None = None,
+) -> bool:
+    """Notify a driver at their personal email about a Scout load event.
+
+    Only called for NEEDS_APPROVAL and AUTO_SENT — never for SAVED_ONLY.
+    From address is always the system dispatch identity, never a driver handle.
+    """
+    smtp_host = os.getenv("MXROUTE_SMTP_HOST") or os.getenv("EMAIL_HOST")
+    smtp_port = int(os.getenv("MXROUTE_SMTP_PORT") or os.getenv("EMAIL_PORT") or "465")
+    smtp_user = os.getenv("MXROUTE_SMTP_USER") or os.getenv("EMAIL_USER")
+    smtp_password = os.getenv("MXROUTE_SMTP_PASSWORD") or os.getenv("EMAIL_PASS")
+    email_domain = os.getenv("EMAIL_DOMAIN", "gcdloads.com")
+    app_url = dashboard_url or os.getenv("APP_URL", "https://codriverfreight.com")
+
+    if not all([smtp_host, smtp_user, smtp_password, to_email]):
+        return False
+
+    name = (driver_name or "Driver").strip()
+
+    if next_step == "AUTO_SENT":
+        subject = f"Bid sent: {origin} → {destination}"
+        body = (
+            f"Hi {name},\n\n"
+            f"CoDriver Scout automatically sent a bid on your behalf:\n\n"
+            f"  Route:  {origin} → {destination}\n"
+            f"  Price:  {price}\n"
+            f"  Score:  {match_score}/4\n\n"
+            f"Log in to review or follow up:\n{app_url}\n\n"
+            "Green Candle Dispatch"
+        )
+    else:  # NEEDS_APPROVAL
+        subject = f"Load needs your approval: {origin} → {destination}"
+        body = (
+            f"Hi {name},\n\n"
+            f"Scout found a load that matches your profile and is waiting for your approval:\n\n"
+            f"  Route:  {origin} → {destination}\n"
+            f"  Price:  {price}\n"
+            f"  Score:  {match_score}/4\n\n"
+            f"Approve or dismiss it here:\n{app_url}\n\n"
+            "Green Candle Dispatch"
+        )
+
+    message = EmailMessage()
+    message["Subject"] = subject
+    message["From"] = f"dispatch@{email_domain}"
+    message["To"] = to_email
+    message.set_content(body)
+
+    try:
+        with smtplib.SMTP_SSL(smtp_host, smtp_port, timeout=20) as client:
+            client.login(smtp_user, smtp_password)
+            client.send_message(message, from_addr=smtp_user, to_addrs=[to_email])
+    except Exception:
+        return False
+
+    return True

@@ -1,19 +1,42 @@
 {% extends "layout/base.html" %}
 
 {% block content %}
-<div class="max-w-3xl mx-auto mt-12 p-6 bg-gray-800 rounded-3xl border border-emerald-500/30">
-  <h2 class="text-2xl font-black text-white mb-2">Submitted — Century Will Reach Out</h2>
-  <p class="text-gray-300 text-sm mb-6">Your info was sent to our Century contact. Alma will call you soon.</p>
+<div class="max-w-xl mx-auto mt-16 p-8 bg-gray-800 rounded-3xl border border-emerald-500/30 text-center">
 
-  <div class="mb-6 p-4 rounded-xl bg-emerald-900/20 border border-emerald-500/30 text-emerald-200 text-sm">
-    While pending approval, upload your packet docs now so you’re ready to roll.
+  <!-- Icon -->
+  <div class="flex justify-center mb-5">
+    <div class="bg-emerald-600/20 border border-emerald-500/40 rounded-full p-5">
+      <svg class="w-10 h-10 text-emerald-400" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/>
+      </svg>
+    </div>
   </div>
 
-  {% include "drivers/partials/packet_readiness_panel.html" %}
+  <h2 class="text-2xl font-black text-white mb-2">Application Submitted</h2>
+  <p class="text-emerald-400 text-sm font-bold uppercase tracking-wider mb-6">Pending Century Finance Approval</p>
 
-  <a href="/onboarding/step3" class="inline-flex items-center gap-2 bg-green-600 hover:bg-green-500 text-white font-bold px-5 py-3 rounded-xl transition">
-    <i class="fas fa-briefcase"></i>
-    Open Digital Briefcase
-  </a>
+  <p class="text-gray-300 text-sm leading-relaxed mb-6">
+    Your information has been sent to Century Finance.
+    Alma will call you <span class="text-white font-semibold">same day or next business day</span> during office hours
+    (Mon–Thu 8am–4pm, Fri 8am–3pm Central) to discuss your custom rates and complete your setup.
+  </p>
+
+  <div class="bg-gray-900/60 border border-gray-700 rounded-2xl p-4 text-left mb-6">
+    <p class="text-[10px] font-black text-gray-500 uppercase tracking-wider mb-2">What happens next</p>
+    <ul class="space-y-2 text-sm text-gray-300">
+      <li class="flex items-start gap-2"><span class="text-emerald-400 mt-0.5">&#10003;</span> Century reviews your application</li>
+      <li class="flex items-start gap-2"><span class="text-emerald-400 mt-0.5">&#10003;</span> Alma calls you to confirm rates &amp; terms</li>
+      <li class="flex items-start gap-2"><span class="text-emerald-400 mt-0.5">&#10003;</span> Once approved, you'll receive an email to complete your setup and upload documents</li>
+      <li class="flex items-start gap-2"><span class="text-emerald-400 mt-0.5">&#10003;</span> Then you're ready to dispatch</li>
+    </ul>
+  </div>
+
+  <p class="text-gray-500 text-xs">
+    Questions? Contact Alma directly at
+    <a href="tel:+18886847195" class="text-emerald-400 hover:text-emerald-300 font-semibold">(888) 684-7195</a>
+    or
+    <a href="mailto:alma@centuryfinance.com" class="text-emerald-400 hover:text-emerald-300 font-semibold">alma@centuryfinance.com</a>
+  </p>
+
 </div>
 {% endblock %}

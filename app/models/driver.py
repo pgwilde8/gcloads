@@ -1,4 +1,4 @@
-from sqlalchemy import Boolean, Column, Date, DateTime, Float, ForeignKey, Integer, String, Text
+from sqlalchemy import Boolean, Column, Date, DateTime, Float, ForeignKey, Integer, SmallInteger, String, Text
 from sqlalchemy.sql import func
 
 from app.database import Base
@@ -39,6 +39,19 @@ class Driver(Base):
 	auto_send_on_perfect_match = Column(Boolean, nullable=False, default=False)
 	approval_threshold = Column(Integer, nullable=False, default=3)
 	scout_api_key = Column(String(64), unique=True, nullable=True)
+	phone = Column(String(30), nullable=True)
+	notif_email_enabled = Column(Boolean, nullable=False, default=True)
+	notif_sms_enabled = Column(Boolean, nullable=False, default=False)
+	notif_quiet_start = Column(SmallInteger, nullable=True, default=22)
+	notif_quiet_end = Column(SmallInteger, nullable=True, default=6)
+	notif_email_digest = Column(Boolean, nullable=False, default=False)
+	last_seen_at = Column(DateTime(timezone=True), nullable=True)
+	timezone = Column(String(60), nullable=True, default="America/Chicago")
+	# Trial + activation gating (migration 028)
+	billing_status = Column(String(20), nullable=False, default="trial")
+	trial_started_at = Column(DateTime(timezone=True), nullable=True)
+	trial_ends_at = Column(DateTime(timezone=True), nullable=True)
+	activated_at = Column(DateTime(timezone=True), nullable=True)
 	created_at = Column(DateTime(timezone=True), server_default=func.now())
 	updated_at = Column(
 		DateTime(timezone=True),

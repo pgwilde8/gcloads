@@ -253,3 +253,110 @@ Track billing
 They press one button.
 
 That’s your win.
+
+=================
+importa stuff about scout:
+Yes — you have a real shot launching like this **as V1**, *as long as you position it honestly and make the “while you browse” experience rock-solid.*
+
+The trap isn’t the tech. The trap is **overpromising “24/7 AI dispatcher”** when the reality is “AI dispatch co-pilot while you’re on the boards.”
+
+If you avoid that mismatch, you’re good.
+
+## What your V1 is, in plain English
+
+**“When you’re load hunting, Scout turns every load page into one click → scored, routed, negotiated, tracked, and (optionally) auto-bid — with alerts.”**
+
+That’s already valuable because it removes:
+
+* copy/paste chaos
+* forgetting follow-ups
+* losing broker threads
+* packet scramble
+* factoring friction
+* fee tracking/billing
+
+Most dispatchers are basically workflow + persistence. You’ve automated a big chunk of that.
+
+## What’s *actually* risky about browser-based Scout
+
+Not “the laptop has to be open.” Drivers can handle that.
+
+The real risks are:
+
+1. **They think it’s working when it isn’t** (logged out, board changed DOM, extension disabled)
+   → You already solved this mostly with button states + error feedback.
+2. **They miss loads because they’re not scanning 24/7**
+   → True, but many owner-ops don’t need 24/7; they hunt in bursts.
+3. **They expect magic**
+   → This is the big one. Fix it with positioning and onboarding.
+
+## How to launch without it backfiring
+
+### 1) Positioning that won’t create churn
+
+Don’t sell “we search the boards for you 24/7.”
+
+Sell one of these:
+
+* **“AI dispatcher while you browse DAT/Truckstop.”**
+* **“One-click dispatch automation from any load you open.”**
+* **“Turn load hunting into auto-bids + organized negotiation threads.”**
+
+Then later you upgrade to “always-on” mode.
+
+### 2) Make “Scout is live” impossible to misunderstand
+
+On the driver dashboard, show a status card:
+
+* ✅ Scout connected (API key valid)
+* ✅ Last ingest: 3 minutes ago
+* ✅ Notifications: Email ON / SMS OFF
+* ⚠️ Quiet hours: 10pm–6am
+
+This reduces “it’s broken” tickets.
+
+### 3) Turn alerts into a feature, not noise
+
+Your current setup is ideal:
+
+* in-app toast if they’re logged in
+* email if not
+* SMS for urgent only (replies/approval)
+
+That covers real life.
+
+## Who this V1 will work best for
+
+Target the right first users and you’ll win.
+
+**Best fit:**
+
+* owner-ops already using DAT/Truckstop daily
+* small fleets where someone is dedicated to load hunting
+* drivers who want negotiation + paperwork handled
+
+**Not best fit (yet):**
+
+* people expecting “set it and forget it” 24/7
+* drivers who don’t use a laptop / live inside mobile only
+* fleets wanting centralized dispatch without board logins
+
+## The blunt go/no-go
+
+You’re **launchable** if you do these three things:
+
+1. onboarding makes extension install + “how it works” dead simple
+2. dashboard shows Scout heartbeat (last activity + connection test)
+3. marketing copy is honest about “while you browse”
+
+If you do that, the V1 constraint becomes a *feature*: “You stay in control. We do the busywork.”
+
+## Your upgrade path (so V1 doesn’t paint you into a corner)
+
+Call it **Scout Mode** (manual browsing) today.
+Later you introduce **AutoScout Mode** (always-on) if/when you get a partner API or legal scanning method.
+
+That way V1 doesn’t feel like a compromise — it feels like a mode.
+
+If you tell me who your first 10 beta drivers are (solo owner-ops vs small fleet, and whether they use laptop vs phone), I’ll tell you the exact positioning + default alert settings that will land best.
+===================

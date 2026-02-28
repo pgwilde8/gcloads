@@ -41,6 +41,8 @@
     </div>
     {% endif %}
 
+    {% include "drivers/partials/trial_banner.html" %}
+
     {% if assigned_handle %}
     <div class="max-w-7xl mx-auto px-6 pt-4">
         <div class="bg-emerald-900/30 border border-emerald-500/40 text-emerald-200 px-4 py-3 rounded-xl text-sm">
@@ -94,6 +96,28 @@
                         <i class="fas fa-radar"></i> Open Load Board
                     </a>
                 </div>
+
+                {% if not scout_activity %}
+                <div class="bg-blue-950/40 border border-blue-700/40 rounded-2xl p-4 flex items-start gap-3">
+                    <div class="bg-blue-600/20 p-2 rounded-xl shrink-0 mt-0.5">
+                        <i class="fab fa-chrome text-blue-400 text-base"></i>
+                    </div>
+                    <div class="flex-1 min-w-0">
+                        <p class="text-white font-bold text-sm">Scout isn't set up yet</p>
+                        <p class="text-slate-400 text-xs mt-0.5 leading-relaxed">Install the Chrome extension and paste your API key to start capturing loads automatically.</p>
+                        <div class="flex flex-wrap gap-2 mt-3">
+                            <a href="/drivers/scout-setup"
+                               class="bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold px-3 py-1.5 rounded-lg transition flex items-center gap-1.5">
+                                <i class="fas fa-sliders text-[10px]"></i> Get My API Key
+                            </a>
+                            <a href="https://chrome.google.com/webstore" target="_blank" rel="noopener"
+                               class="bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-300 text-xs font-bold px-3 py-1.5 rounded-lg transition flex items-center gap-1.5">
+                                <i class="fab fa-chrome text-[10px]"></i> Install Extension
+                            </a>
+                        </div>
+                    </div>
+                </div>
+                {% endif %}
 
                 <a href="/drivers/scout-loads" class="block bg-slate-900 border border-slate-800 rounded-2xl p-5 hover:border-blue-500/40 transition group">
                     <div class="flex items-start gap-3">

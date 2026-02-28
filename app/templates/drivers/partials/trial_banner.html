@@ -1,0 +1,50 @@
+{# Trial / activation banner — included at the top of dashboard.html.
+   Shown only when billing_status is 'trial' or 'card_required'.
+   billing_status and trial_days_left are passed from the dashboard route. #}
+
+{% if billing_status == 'trial' %}
+<div class="max-w-7xl mx-auto px-6 pt-4">
+  <div class="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3
+              bg-amber-900/30 border border-amber-500/40 text-amber-100
+              px-4 py-3 rounded-xl text-sm">
+    <div class="flex items-center gap-3">
+      <span class="text-amber-400 text-lg">&#9888;</span>
+      <span>
+        <span class="font-bold">
+          {% if trial_days_left is not none and trial_days_left > 0 %}
+            {{ trial_days_left }} day{{ 's' if trial_days_left != 1 else '' }} left in your free trial.
+          {% else %}
+            Your trial ends today.
+          {% endif %}
+        </span>
+        Scout scoring and notifications are active. Activate to send bids and use dispatch automation.
+      </span>
+    </div>
+    <a href="/billing/activate"
+       class="shrink-0 bg-amber-500 hover:bg-amber-400 text-black font-black text-xs
+              uppercase tracking-wider px-4 py-2 rounded-lg transition-all active:scale-95 whitespace-nowrap">
+      Activate Dispatch Automation
+    </a>
+  </div>
+</div>
+
+{% elif billing_status == 'card_required' %}
+<div class="max-w-7xl mx-auto px-6 pt-4">
+  <div class="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3
+              bg-red-900/30 border border-red-500/40 text-red-100
+              px-4 py-3 rounded-xl text-sm">
+    <div class="flex items-center gap-3">
+      <span class="text-red-400 text-lg">&#128274;</span>
+      <span>
+        <span class="font-bold">Trial ended.</span>
+        Scout scoring is still active. Activate dispatch automation to send bids, compose packets, and use factoring.
+      </span>
+    </div>
+    <a href="/billing/activate"
+       class="shrink-0 bg-green-600 hover:bg-green-500 text-white font-black text-xs
+              uppercase tracking-wider px-4 py-2 rounded-lg transition-all active:scale-95 whitespace-nowrap">
+      Activate &mdash; No Charge Today
+    </a>
+  </div>
+</div>
+{% endif %}

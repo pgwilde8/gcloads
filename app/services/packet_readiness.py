@@ -7,12 +7,14 @@ REQUIRED_PACKET_DOCS: tuple[tuple[str, str], ...] = (
     ("w9", "W-9"),
     ("coi", "COI"),
     ("mc_auth", "MC Auth"),
+    ("voided_check", "Voided Check"),
 )
 
 _DOC_TYPE_TO_KEY = {
     "W9": "w9",
     "INSURANCE": "coi",
     "AUTHORITY": "mc_auth",
+    "VOIDED_CHECK": "voided_check",
 }
 
 
@@ -52,7 +54,7 @@ def packet_readiness_for_driver(db: Session, driver_id: int) -> dict:
     docs = get_active_documents(
         db,
         driver_id=driver_id,
-        doc_types=["W9", "INSURANCE", "AUTHORITY"],
+        doc_types=["W9", "INSURANCE", "AUTHORITY", "VOIDED_CHECK"],
         negotiation_id=None,
     )
     uploaded_keys: set[str] = set()

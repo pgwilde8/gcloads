@@ -15,6 +15,7 @@ from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.dependencies.billing_gate import require_payment_method_if_paid
+from app.services.billing_gate import maybe_flip_trial_expired, require_active
 from app.models.broker import BrokerEmail
 from app.models.call_logs import CallLog
 from app.models.driver import Driver
@@ -23,7 +24,7 @@ from app.models.operations import Message, Negotiation
 from app.services.broker_attachments import build_broker_email_attachments
 from app.services.document_registry import upsert_driver_document
 from app.services.email import send_quick_reply_email
-from app.services.factoring import send_negotiation_to_factoring
+from app.services.factoring_facade import submit_to_factoring
 from app.services.ledger import process_load_fees
 from app.services.outbound_messages import log_outbound_message
 from app.services.packet_compose import compose_negotiation_packet
@@ -216,6 +217,8 @@ async def compose_packet(
     db: Session = Depends(get_db),
     selected_driver: Driver = Depends(require_payment_method_if_paid),
 ):
+    maybe_flip_trial_expired(selected_driver, db)
+    require_active(selected_driver, "compose dispatch packets")
 
     negotiation = (
         db.query(Negotiation)
@@ -466,6 +469,8 @@ async def secure_load_action(
     db: Session = Depends(get_db),
     selected_driver: Driver = Depends(require_payment_method_if_paid),
 ):
+    maybe_flip_trial_expired(selected_driver, db)
+    require_active(selected_driver, "send broker emails and secure loads")
 
     negotiation = (
         db.query(Negotiation)
@@ -705,6 +710,8 @@ async def retry_secure_email(
     db: Session = Depends(get_db),
     selected_driver: Driver = Depends(require_payment_method_if_paid),
 ):
+    maybe_flip_trial_expired(selected_driver, db)
+    require_active(selected_driver, "retry broker emails")
 
     negotiation = (
         db.query(Negotiation)

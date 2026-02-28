@@ -23,28 +23,89 @@ const extractViaQuery = (selector, attr = null) => {
     return (value || "").trim();
 };
 
+// Normalise raw equipment strings to the canonical terms the backend expects.
+const EQUIP_ALIASES = {
+    "van": "Dry Van", "dry van": "Dry Van", "dryvan": "Dry Van", "dry": "Dry Van",
+    "ftl": "Dry Van", "reefer": "Refrigerated", "refrigerated": "Refrigerated",
+    "ref": "Refrigerated", "rf": "Refrigerated",
+    "flatbed": "Flatbed", "flat bed": "Flatbed", "flat": "Flatbed", "fb": "Flatbed",
+    "step deck": "Step Deck", "stepdeck": "Step Deck", "step": "Step Deck",
+    "lowboy": "Lowboy", "power only": "Power Only", "power": "Power Only", "po": "Power Only",
+    "hotshot": "Hotshot", "hot shot": "Hotshot",
+    "tanker": "Tanker", "bulk": "Bulk", "conestoga": "Conestoga",
+    "rgn": "RGN", "double drop": "Double Drop",
+};
+
+const normaliseEquipment = (raw) => {
+    if (!raw) return "";
+    const key = raw.toLowerCase().replace(/[^a-z0-9 ]/g, "").trim();
+    return EQUIP_ALIASES[key] || raw.trim();
+};
+
+const extractEquipmentType = (text) => {
+    // Try labelled field first ("Equipment: Flatbed", "Trailer Type: Reefer", etc.)
+    const labelled = extractViaRegex(
+        /(?:Equipment|Trailer\s*Type|Equip(?:ment)?\s*Type)\s*[:\-]?\s*\n?\s*([A-Za-z][A-Za-z0-9 \-\/]{1,30})/i,
+        text, ""
+    );
+    if (labelled) return normaliseEquipment(labelled);
+
+    // Fall back: scan for known equipment keywords anywhere in the text
+    const keywords = [
+        "Dry Van", "Reefer", "Refrigerated", "Flatbed", "Step Deck", "Power Only",
+        "Hotshot", "Lowboy", "Tanker", "Conestoga", "RGN", "Double Drop", "Bulk",
+    ];
+    for (const kw of keywords) {
+        if (new RegExp(`\\b${kw}\\b`, "i").test(text)) return kw;
+    }
+    return "";
+};
+
 const harvestLoadData = () => {
     const text = getText();
 
     const emailFromLink = extractViaQuery("a[href^='mailto:']", "href").replace(/^mailto:/i, "").split("?")[0];
     const phoneFromLink = extractViaQuery("a[href^='tel:']", "href").replace(/^tel:/i, "");
 
+    // MC: accept 4–8 digits; handle "MC#", "MC #", "MC", "Motor Carrier #" prefixes
+    const mc_number = extractViaRegex(
+        /(?:Motor\s*Carrier\s*#?|MC\s*#?)\s*([0-9]{4,8})/i, text, ""
+    );
+
+    // Distance: extract miles if present for RPM computation on the backend
+    const distance_miles = extractViaRegex(
+        /(\d{3,4})\s*(?:mi(?:les?)?|mi\.)/i, text, ""
+    );
+
+    // Rate per mile: explicit $/mi label takes priority
+    const rate_per_mile = extractViaRegex(
+        /\$?\s*(\d+\.\d{1,2})\s*\/?\s*(?:mi(?:le)?|rpm)/i, text, ""
+    );
+
+    const equipment_type = extractEquipmentType(text);
+
     const payload = {
-        load_id: extractViaRegex(/Load\s*ID\s*\n?\s*([0-9-]+)/i, text, ""),
-        mc_number: extractViaRegex(/MC\s*#?\s*([0-9]{6,7})/i, text, ""),
-        dot_number: extractViaRegex(/DOT\s*#?\s*([0-9]{5,10})/i, text, ""),
-        email: emailFromLink || extractViaRegex(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/, text, ""),
-        phone: phoneFromLink || extractViaRegex(/(\+1\s*\(\d{3}\)\s*\d{3}-\d{4})/, text, ""),
-        price: extractViaRegex(/(\$\s?\d{1,3}(?:,\d{3})*)/, text, "Check Notes"),
-        origin: extractViaRegex(/Origin\s*\n?\s*([^\n]+)/i, text, "Unknown"),
-        destination: extractViaRegex(/Destination\s*\n?\s*([^\n]+)/i, text, "Unknown"),
-        source: detectSource()
+        load_id:        extractViaRegex(/Load\s*ID\s*\n?\s*([0-9-]+)/i, text, ""),
+        mc_number,
+        dot_number:     extractViaRegex(/DOT\s*#?\s*([0-9]{5,10})/i, text, ""),
+        email:          emailFromLink || extractViaRegex(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/, text, ""),
+        phone:          phoneFromLink || extractViaRegex(/(\+?1?\s*\(?\d{3}\)?[\s.\-]\d{3}[\s.\-]\d{4})/, text, ""),
+        price:          extractViaRegex(/(\$\s?\d{1,3}(?:,\d{3})*)/, text, "Check Notes"),
+        origin:         extractViaRegex(/Origin\s*\n?\s*([^\n]+)/i, text, "Unknown"),
+        destination:    extractViaRegex(/Destination\s*\n?\s*([^\n]+)/i, text, "Unknown"),
+        equipment_type,
+        source:         detectSource(),
+        metadata: {
+            ...(distance_miles  && { distance_miles:  parseFloat(distance_miles)  }),
+            ...(rate_per_mile   && { rate_per_mile:   parseFloat(rate_per_mile)   }),
+            ...(equipment_type  && { equipment_type                               }),
+        },
     };
 
     payload.raw_notes = extractViaRegex(/((?:Email bids only|Phone calls only|Call to book|Must call|No emails)[^\n]*)/i, text, "");
     payload.contact_info = {
         email: payload.email,
-        phone: payload.phone
+        phone: payload.phone,
     };
 
     return payload;

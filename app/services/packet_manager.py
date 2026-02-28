@@ -17,6 +17,7 @@ _DOC_TYPE_MAP = {
     "mc_auth.pdf": "AUTHORITY",
     "coi.pdf": "INSURANCE",
     "w9.pdf": "W9",
+    "voided_check.pdf": "VOIDED_CHECK",
 }
 
 

@@ -13,9 +13,11 @@ from app.database import get_db
 from app.models.driver import Driver
 from app.models.load import Load
 from app.models.operations import Negotiation
-from app.services.broker_intelligence import triage_broker_contact
+from app.services.billing_gate import is_active, maybe_flip_trial_expired, require_active
+from app.services.broker_intelligence import normalize_mc, triage_broker_contact
 from app.services.broker_promotion import promote_scout_contact
-from app.services.email import send_negotiation_email
+from app.services.email import send_driver_alert_email, send_negotiation_email
+from app.services.notification_guard import record_notification, should_email
 from app.services.parser_rules import load_parsing_rules, resolve_contact_mode
 from app.services.scout_matching import compute_match
 
@@ -262,6 +264,9 @@ async def ingest_load(
     driver: Driver = Depends(_resolve_driver_by_key),
     db: Session = Depends(get_db),
 ) -> dict[str, Any]:
+    # ── Normalize MC number before anything touches it ─────────────────────────
+    data.mc_number = normalize_mc(data.mc_number)
+
     # ── Build merged metadata ──────────────────────────────────────────────────
     merged_metadata = dict(data.metadata)
     contact_info = dict(data.contact_info or {})
@@ -302,6 +307,23 @@ async def ingest_load(
     )
     broker_email: str | None = triage.get("email") or contact_info.get("email")
 
+    # Persist broker resolution outcome on the load row
+    _TRIAGE_REASON_TO_STATUS = {
+        "broker_email_found": "resolved",
+        "broker_found_no_email": "resolved",
+        "broker_not_found": "unknown_mc",
+        "missing_mc_number": "missing_mc",
+        "driver_override_blacklist": "resolved",
+        "contact_instruction_call": "resolved",
+    }
+    triage_reason = triage.get("reason", "")
+    load.broker_match_status = _TRIAGE_REASON_TO_STATUS.get(triage_reason, "unknown_mc")
+    db.commit()
+
+    # ── Trial expiry check (lazy flip, no cron needed) ─────────────────────────
+    if maybe_flip_trial_expired(driver, db):
+        db.commit()
+
     # ── Match scoring ──────────────────────────────────────────────────────────
     match = compute_match(driver, load, merged_metadata)
 
@@ -314,47 +336,65 @@ async def ingest_load(
 
     queued_negotiation_id: int | None = None
 
-    # ── Create notification for load match ──────────────────────────────────
-    def create_load_match_notification(db: Session, driver_id: int, load_data: dict, match_score: int):
-        """Create a LOAD_MATCH notification when Scout finds a good match."""
-        try:
-            message = f"🔥 New load match: {load_data.get('origin', 'Unknown')} → {load_data.get('destination', 'Unknown')} (${load_data.get('price', '0')})"
-            
-            db.execute(
-                text("""
-                    INSERT INTO driver_notifications (driver_id, notif_type, message, created_at)
-                    VALUES (:driver_id, 'LOAD_MATCH', :message, NOW())
-                """),
-                {"driver_id": driver_id, "message": message}
-            )
-            db.commit()
-        except Exception as e:
-            logger.warning(f"Failed to create LOAD_MATCH notification: {e}")
-            db.rollback()
-
     if next_step == "AUTO_SENT":
         neg, _ = _get_or_create_negotiation(
             db, load, driver, "Sent", match["score"], match
         )
         queued_negotiation_id = neg.id
-        create_load_match_notification(db, driver.id, {
-            "origin": load.origin,
-            "destination": load.destination,
-            "price": load.price
-        }, match["score"])
+
+        # Dedupe key: one notification per (driver, load, negotiation, type).
+        # Including neg.id means a dismissed+reactivated negotiation gets a fresh
+        # notification, while a simple re-post of the same load is suppressed.
+        dedupe_key = f"notif:{driver.id}:{load.id}:{neg.id}:AUTO_SENT"
+        notif_inserted = record_notification(
+            db,
+            driver_id=driver.id,
+            notif_type="AUTO_SENT",
+            message=f"Bid sent: {load.origin} → {load.destination} ({load.price})",
+            payload={"load_id": load.id, "neg_id": neg.id, "score": match["score"]},
+            dedupe_key=dedupe_key,
+        )
+
         if background_tasks is not None:
-            background_tasks.add_task(
-                send_negotiation_email,
-                broker_email,
-                load.ref_id,
-                load.origin,
-                load.destination,
-                identity,
-                load.source_platform,
-            )
+            # Broker email: blocked unless billing is active
+            if is_active(driver):
+                background_tasks.add_task(
+                    send_negotiation_email,
+                    broker_email,
+                    load.ref_id,
+                    load.origin,
+                    load.destination,
+                    identity,
+                    load.source_platform,
+                )
+            else:
+                # Downgrade to NEEDS_APPROVAL so the driver can approve manually
+                # once they activate — don't silently drop the negotiation.
+                neg.status = "Queued"
+                db.add(neg)
+                db.commit()
+                next_step = "NEEDS_APPROVAL"
+                logger.info(
+                    "scout_ingest: AUTO_SENT downgraded to NEEDS_APPROVAL (billing_status=%s) "
+                    "load=%s driver=%s",
+                    driver.billing_status, load.id, driver.id,
+                )
+
+            # Driver alert email: only if guard approves AND notification is new
+            if notif_inserted and driver.email and should_email(db, driver, "AUTO_SENT"):
+                background_tasks.add_task(
+                    send_driver_alert_email,
+                    to_email=driver.email,
+                    driver_name=driver.display_name,
+                    next_step="AUTO_SENT",
+                    origin=load.origin,
+                    destination=load.destination,
+                    price=load.price or "",
+                    match_score=match["score"],
+                )
         logger.info(
-            "scout_ingest: AUTO_SENT load=%s driver=%s score=%s/4 broker_email=%s",
-            load.id, driver.id, match["score"], broker_email,
+            "scout_ingest: AUTO_SENT load=%s driver=%s score=%s/4 broker_email=%s notif=%s",
+            load.id, driver.id, match["score"], broker_email, notif_inserted,
         )
 
     elif next_step == "NEEDS_APPROVAL":
@@ -362,14 +402,31 @@ async def ingest_load(
             db, load, driver, "Queued", match["score"], match
         )
         queued_negotiation_id = neg.id
-        create_load_match_notification(db, driver.id, {
-            "origin": load.origin,
-            "destination": load.destination,
-            "price": load.price
-        }, match["score"])
+
+        dedupe_key = f"notif:{driver.id}:{load.id}:{neg.id}:NEEDS_APPROVAL"
+        notif_inserted = record_notification(
+            db,
+            driver_id=driver.id,
+            notif_type="LOAD_MATCH",
+            message=f"Load needs approval: {load.origin} → {load.destination} ({load.price})",
+            payload={"load_id": load.id, "neg_id": neg.id, "score": match["score"]},
+            dedupe_key=dedupe_key,
+        )
+
+        if background_tasks is not None and notif_inserted and driver.email and should_email(db, driver, "NEEDS_APPROVAL"):
+            background_tasks.add_task(
+                send_driver_alert_email,
+                to_email=driver.email,
+                driver_name=driver.display_name,
+                next_step="NEEDS_APPROVAL",
+                origin=load.origin,
+                destination=load.destination,
+                price=load.price or "",
+                match_score=match["score"],
+            )
         logger.info(
-            "scout_ingest: NEEDS_APPROVAL load=%s driver=%s score=%s/4 neg=%s created=%s",
-            load.id, driver.id, match["score"], neg.id, created,
+            "scout_ingest: NEEDS_APPROVAL load=%s driver=%s score=%s/4 neg=%s created=%s notif=%s",
+            load.id, driver.id, match["score"], neg.id, created, notif_inserted,
         )
 
     else:

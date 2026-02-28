@@ -163,3 +163,15 @@ Because of this detective work, we now know exactly why the listener was skippin
 
 **Would you like me to show you the command to monitor the `messages` table in real-time?** This will let you see the exact moment the AI "reads" your next test email and starts writing back.
 
+docker exec gcloads_db psql -U gcd_admin -d gcloads_db -c "SELECT mc_number FROM webwise.brokers WHERE mc_number IS NOT NULL LIMIT 10;" 2>&1
+
+201667
+009153
+009251
+000693
+167354
+159819
+001083
+202448
+201703
+202212

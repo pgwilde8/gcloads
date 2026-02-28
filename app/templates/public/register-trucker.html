@@ -2,8 +2,10 @@
 
 {% block content %}
 <div class="max-w-md mx-auto mt-10 p-6 bg-gray-800 rounded-3xl border border-green-500/30">
-  <h2 class="text-2xl font-black text-white mb-2">Complete Your Profile</h2>
-  <p class="text-gray-400 text-sm mb-6">One last step before dispatch onboarding.</p>
+  <h2 class="text-2xl font-black text-white mb-2">
+    {% if email_readonly %}Complete Your Profile{% else %}Create Your Account{% endif %}
+  </h2>
+  <p class="text-gray-400 text-sm mb-6">Set up your carrier profile to start dispatching.</p>
 
   {% if error %}
   <div class="mb-4 p-3 rounded-xl bg-red-900/30 border border-red-500/40 text-red-200 text-sm">{{ error }}</div>
@@ -63,8 +65,20 @@
     </div>
     <hr class="border-gray-700 my-4">
     <div>
-      <label class="text-xs font-bold text-gray-400 uppercase">Verified Email</label>
-      <input type="email" name="email" value="{{ prefill_email or '' }}" readonly class="w-full bg-gray-900 border border-gray-700 p-3 rounded-xl text-white opacity-80 cursor-not-allowed">
+      <label class="text-xs font-bold text-gray-400 uppercase">
+        {% if email_readonly %}Verified Email{% else %}Email Address{% endif %}
+      </label>
+      <input
+        type="email"
+        name="email"
+        value="{{ prefill_email or '' }}"
+        {% if email_readonly %}readonly{% else %}required{% endif %}
+        placeholder="you@example.com"
+        class="w-full bg-gray-900 border border-gray-700 p-3 rounded-xl text-white{% if email_readonly %} opacity-80 cursor-not-allowed{% endif %}"
+      >
+      {% if not email_readonly %}
+      <p class="text-[11px] text-gray-500 mt-1">We'll use this to send your login link.</p>
+      {% endif %}
     </div>
     <button type="submit" class="w-full bg-green-600 hover:bg-green-500 text-white font-bold py-4 rounded-2xl shadow-lg transition-all active:scale-95">
       Save Profile

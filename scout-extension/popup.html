@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            background: #020617;
+            color: #e2e8f0;
+            width: 240px;
+            padding: 16px;
+            margin: 0;
+        }
+        .logo {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-bottom: 12px;
+        }
+        .logo-dot {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            background: #10b981;
+            animation: pulse 2s infinite;
+        }
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.4; }
+        }
+        .logo-text {
+            font-weight: 900;
+            font-size: 13px;
+            letter-spacing: -0.02em;
+            color: white;
+        }
+        .logo-text span { color: #3b82f6; }
+        .status {
+            font-size: 11px;
+            color: #64748b;
+            margin-bottom: 14px;
+            padding: 8px 10px;
+            background: #0f172a;
+            border: 1px solid #1e293b;
+            border-radius: 8px;
+        }
+        .status.ok { color: #10b981; border-color: #10b981/30; }
+        .status.warn { color: #f59e0b; }
+        a {
+            display: block;
+            text-align: center;
+            background: #1e40af;
+            color: white;
+            font-size: 11px;
+            font-weight: 700;
+            padding: 8px;
+            border-radius: 8px;
+            text-decoration: none;
+            margin-bottom: 6px;
+        }
+        a:hover { background: #2563eb; }
+        a.secondary { background: #1e293b; color: #94a3b8; }
+        a.secondary:hover { background: #334155; color: white; }
+    </style>
+</head>
+<body>
+    <div class="logo">
+        <div class="logo-dot" id="dot"></div>
+        <div class="logo-text">Co<span>Driver</span> Scout</div>
+    </div>
+    <div class="status" id="status">Checking connection...</div>
+    <a href="https://codriverfreight.com/drivers/dashboard" target="_blank">Open Dashboard</a>
+    <a href="#" class="secondary" id="options-link">Settings / API Key</a>
+    <script src="popup.js"></script>
+</body>
+</html>

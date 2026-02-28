@@ -1,75 +1,125 @@
 {% extends "layout/base.html" %}
 
 {% block content %}
-<div class="max-w-3xl mx-auto mt-10 p-6 bg-gray-800 rounded-3xl border border-green-500/30">
-  <h2 class="text-2xl font-black text-white mb-2">Century Finance Application</h2>
-  <p class="text-gray-400 text-sm mb-6">We’ll send your details directly to our Century contact.</p>
+<div class="max-w-3xl mx-auto mt-10 space-y-6">
 
-  {% if error %}
-  <div class="mb-4 p-3 rounded-xl bg-red-900/30 border border-red-500/40 text-red-200 text-sm">{{ error }}</div>
-  {% endif %}
-
-  <form action="/century/apply" method="POST" class="space-y-4">
-    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-      <div>
-        <label class="text-xs font-bold text-gray-400 uppercase">Full Name *</label>
-        <input type="text" name="full_name" required value="{{ driver.display_name or '' }}" class="w-full bg-gray-900 border border-gray-700 p-3 rounded-xl text-white">
+  <!-- Century Finance info card -->
+  <div class="bg-gray-800 rounded-3xl border border-blue-500/30 p-6">
+    <div class="flex items-start gap-4 mb-4">
+      <div class="bg-blue-600/20 border border-blue-500/40 rounded-2xl p-3 shrink-0">
+        <svg class="w-7 h-7 text-blue-400" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M8 14v3m4-3v3m4-3v3M3 21h18M3 10h18M3 7l9-4 9 4M4 10h16v11H4V10z"/>
+        </svg>
       </div>
       <div>
-        <label class="text-xs font-bold text-gray-400 uppercase">Email *</label>
-        <input type="email" name="email" required value="{{ driver.email or '' }}" readonly class="w-full bg-gray-900 border border-gray-700 p-3 rounded-xl text-white opacity-80 cursor-not-allowed">
-      </div>
-      <div>
-        <label class="text-xs font-bold text-gray-400 uppercase">Cell Phone *</label>
-        <input type="text" name="cell_phone" required class="w-full bg-gray-900 border border-gray-700 p-3 rounded-xl text-white">
-      </div>
-      <div>
-        <label class="text-xs font-bold text-gray-400 uppercase">Secondary Phone</label>
-        <input type="text" name="secondary_phone" class="w-full bg-gray-900 border border-gray-700 p-3 rounded-xl text-white">
-      </div>
-      <div>
-        <label class="text-xs font-bold text-gray-400 uppercase">MC Number *</label>
-        <input type="text" name="mc_number" required value="{{ driver.mc_number or '' }}" class="w-full bg-gray-900 border border-gray-700 p-3 rounded-xl text-white">
-      </div>
-      <div>
-        <label class="text-xs font-bold text-gray-400 uppercase">DOT Number *</label>
-        <input type="text" name="dot_number" required value="{{ driver.dot_number or '' }}" class="w-full bg-gray-900 border border-gray-700 p-3 rounded-xl text-white">
-      </div>
-      <div>
-        <label class="text-xs font-bold text-gray-400 uppercase">Number of Trucks *</label>
-        <input type="text" name="number_of_trucks" required class="w-full bg-gray-900 border border-gray-700 p-3 rounded-xl text-white">
-      </div>
-      <div>
-        <label class="text-xs font-bold text-gray-400 uppercase">Company Name</label>
-        <input type="text" name="company_name" class="w-full bg-gray-900 border border-gray-700 p-3 rounded-xl text-white">
-      </div>
-      <div>
-        <label class="text-xs font-bold text-gray-400 uppercase">Estimated Monthly Volume</label>
-        <input type="text" name="estimated_monthly_volume" class="w-full bg-gray-900 border border-gray-700 p-3 rounded-xl text-white">
-      </div>
-      <div>
-        <label class="text-xs font-bold text-gray-400 uppercase">Current Factoring Company</label>
-        <input type="text" name="current_factoring_company" class="w-full bg-gray-900 border border-gray-700 p-3 rounded-xl text-white">
-      </div>
-      <div>
-        <label class="text-xs font-bold text-gray-400 uppercase">Preferred Funding Speed</label>
-        <select name="preferred_funding_speed" class="w-full bg-gray-900 border border-gray-700 p-3 rounded-xl text-white">
-          <option value="">Select</option>
-          <option value="same_day">Same day</option>
-          <option value="next_day">Next day</option>
-          <option value="standard">Standard</option>
-        </select>
+        <h2 class="text-xl font-black text-white">Century Finance, LLC</h2>
+        <p class="text-blue-400 text-xs font-bold uppercase tracking-wider mt-0.5">Factoring Partner &mdash; In Business Since 2004</p>
       </div>
     </div>
 
-    <label class="inline-flex items-center gap-2 text-sm text-gray-300">
-      <input type="checkbox" name="interested_fuel_card" value="1" class="rounded border-gray-600 bg-gray-900">
-      Interested in fuel card options
-    </label>
+    <p class="text-gray-300 text-sm leading-relaxed mb-4">
+      Century Finance was founded in 2004 with one focus: <span class="text-white font-semibold">America's truckers</span>.
+      For over 20 years they've offered flexible, tailor-made factoring programs designed to fund your operation as simply and seamlessly as possible.
+      No robots, no voicemail — when you call during office hours, a real person picks up.
+    </p>
 
-    <button type="submit" class="w-full bg-green-600 hover:bg-green-500 text-white font-bold py-4 rounded-2xl shadow-lg transition-all active:scale-95">
-      Submit to Century
-    </button>
-  </form>
+    <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-4">
+      <div class="bg-gray-900/60 rounded-xl p-3 border border-gray-700">
+        <p class="text-[10px] font-black text-gray-500 uppercase tracking-wider mb-1">Funding Options</p>
+        <p class="text-white text-sm font-semibold">Same-day wire or next-day ACH</p>
+        <p class="text-gray-400 text-xs mt-0.5">Split advances your way</p>
+      </div>
+      <div class="bg-gray-900/60 rounded-xl p-3 border border-gray-700">
+        <p class="text-[10px] font-black text-gray-500 uppercase tracking-wider mb-1">Office Hours (Central)</p>
+        <p class="text-white text-sm font-semibold">Mon–Thu 8:00am–4:00pm</p>
+        <p class="text-gray-400 text-xs mt-0.5">Friday 8:00am–3:00pm</p>
+      </div>
+      <div class="bg-gray-900/60 rounded-xl p-3 border border-gray-700">
+        <p class="text-[10px] font-black text-gray-500 uppercase tracking-wider mb-1">Fuel Card Program</p>
+        <p class="text-white text-sm font-semibold">Multi-benefit fuel discounts</p>
+        <p class="text-gray-400 text-xs mt-0.5">Available to all clients</p>
+      </div>
+      <div class="bg-gray-900/60 rounded-xl p-3 border border-gray-700">
+        <p class="text-[10px] font-black text-gray-500 uppercase tracking-wider mb-1">Online Account Access</p>
+        <p class="text-white text-sm font-semibold">Real-time aging &amp; balance</p>
+        <p class="text-gray-400 text-xs mt-0.5">Know exactly where you stand</p>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- Application form -->
+  <div class="bg-gray-800 rounded-3xl border border-green-500/30 p-6">
+    <h3 class="text-lg font-black text-white mb-1">Apply Now</h3>
+    <p class="text-gray-400 text-sm mb-6">We'll send your details directly to Alma. She'll reach out to discuss your custom rates.</p>
+
+    {% if error %}
+    <div class="mb-4 p-3 rounded-xl bg-red-900/30 border border-red-500/40 text-red-200 text-sm">{{ error }}</div>
+    {% endif %}
+
+    <form action="/century/apply" method="POST" class="space-y-4">
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div>
+          <label class="text-xs font-bold text-gray-400 uppercase">Full Name *</label>
+          <input type="text" name="full_name" required value="{{ driver.display_name or '' }}" class="w-full bg-gray-900 border border-gray-700 p-3 rounded-xl text-white">
+        </div>
+        <div>
+          <label class="text-xs font-bold text-gray-400 uppercase">Email *</label>
+          <input type="email" name="email" required value="{{ driver.email or '' }}" readonly class="w-full bg-gray-900 border border-gray-700 p-3 rounded-xl text-white opacity-80 cursor-not-allowed">
+        </div>
+        <div>
+          <label class="text-xs font-bold text-gray-400 uppercase">Cell Phone *</label>
+          <input type="text" name="cell_phone" required class="w-full bg-gray-900 border border-gray-700 p-3 rounded-xl text-white">
+        </div>
+        <div>
+          <label class="text-xs font-bold text-gray-400 uppercase">Secondary Phone</label>
+          <input type="text" name="secondary_phone" class="w-full bg-gray-900 border border-gray-700 p-3 rounded-xl text-white">
+        </div>
+        <div>
+          <label class="text-xs font-bold text-gray-400 uppercase">MC Number *</label>
+          <input type="text" name="mc_number" required value="{{ driver.mc_number or '' }}" class="w-full bg-gray-900 border border-gray-700 p-3 rounded-xl text-white">
+        </div>
+        <div>
+          <label class="text-xs font-bold text-gray-400 uppercase">DOT Number *</label>
+          <input type="text" name="dot_number" required value="{{ driver.dot_number or '' }}" class="w-full bg-gray-900 border border-gray-700 p-3 rounded-xl text-white">
+        </div>
+        <div>
+          <label class="text-xs font-bold text-gray-400 uppercase">Number of Trucks *</label>
+          <input type="text" name="number_of_trucks" required class="w-full bg-gray-900 border border-gray-700 p-3 rounded-xl text-white">
+        </div>
+        <div>
+          <label class="text-xs font-bold text-gray-400 uppercase">Company Name</label>
+          <input type="text" name="company_name" class="w-full bg-gray-900 border border-gray-700 p-3 rounded-xl text-white">
+        </div>
+        <div>
+          <label class="text-xs font-bold text-gray-400 uppercase">Estimated Monthly Volume</label>
+          <input type="text" name="estimated_monthly_volume" class="w-full bg-gray-900 border border-gray-700 p-3 rounded-xl text-white">
+        </div>
+        <div>
+          <label class="text-xs font-bold text-gray-400 uppercase">Current Factoring Company</label>
+          <input type="text" name="current_factoring_company" class="w-full bg-gray-900 border border-gray-700 p-3 rounded-xl text-white">
+        </div>
+        <div>
+          <label class="text-xs font-bold text-gray-400 uppercase">Preferred Funding Speed</label>
+          <select name="preferred_funding_speed" class="w-full bg-gray-900 border border-gray-700 p-3 rounded-xl text-white">
+            <option value="">Select</option>
+            <option value="same_day">Same day (wire)</option>
+            <option value="next_day">Next day (ACH)</option>
+            <option value="standard">Standard</option>
+          </select>
+        </div>
+      </div>
+
+      <label class="inline-flex items-center gap-2 text-sm text-gray-300">
+        <input type="checkbox" name="interested_fuel_card" value="1" class="rounded border-gray-600 bg-gray-900">
+        Interested in fuel card options
+      </label>
+
+      <button type="submit" class="w-full bg-green-600 hover:bg-green-500 text-white font-bold py-4 rounded-2xl shadow-lg transition-all active:scale-95">
+        Submit to Century
+      </button>
+    </form>
+  </div>
+
 </div>
 {% endblock %}

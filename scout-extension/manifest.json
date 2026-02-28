@@ -1,16 +1,14 @@
 {
   "manifest_version": 3,
   "name": "CoDriver Scout",
-  "version": "1.1",
-  "description": "Surgical broker data harvester for CoDriver Freight",
+  "version": "1.2",
+  "description": "Adds a Ship to Dispatch button on DAT, TruckSmarter, and TruckStop. Sends load data to your CoDriver dashboard automatically.",
   "permissions": ["storage", "activeTab"],
   "host_permissions": [
     "https://*.trucksmarter.com/*",
     "https://*.dat.com/*",
     "https://*.truckstop.com/*",
-    "http://127.0.0.1:8369/*",
-    "https://codriverfreight.com/*",
-    "https://greencandledispatch.com/*"
+    "https://codriverfreight.com/*"
   ],
   "content_scripts": [
     {
@@ -27,6 +25,17 @@
     "open_in_tab": false
   },
   "action": {
-    "default_title": "CoDriver Scout Status"
+    "default_popup": "popup.html",
+    "default_title": "CoDriver Scout",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
+  },
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
   }
 }

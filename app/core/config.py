@@ -49,7 +49,7 @@ def get_safe_base_url_from_request(
     allowed = allowed_hosts or _get_allowed_base_hosts()
     fallback = (fallback_base_url or "").rstrip("/")
     if not fallback:
-        fallback = "https://app.greencandledispatch.com"
+        fallback = "https://codriverfreight.com"
 
     client_ip = _client_ip(request)
     trusted = [ip.strip() for ip in (trusted_proxy_ips or "").split(",") if ip.strip()]
@@ -115,7 +115,7 @@ class CoreSettings(BaseSettings):
 
     MAX_EMAIL_ATTACHMENT_BYTES: int = 20 * 1024 * 1024  # 20MB default
 
-    APP_BASE_URL: str = "https://app.greencandledispatch.com"
+    APP_BASE_URL: str = "https://codriverfreight.com"
     BETA_HOSTS: str = "beta.codriverfreight.com"
     TRUSTED_PROXY_IPS: str = ""  # Comma-separated IPs; X-Forwarded-Host honored only from these
     CENTURY_REFERRAL_TO_EMAIL: str = "techsmartmarketing8@gmail.com"
@@ -124,7 +124,7 @@ class CoreSettings(BaseSettings):
     MAGIC_LINK_SEND_EMAIL_LIMIT: int = 5
     MAGIC_LINK_SEND_IP_LIMIT: int = 20
     ADMIN_TOKEN: str = ""
-    ALLOWED_BASE_HOSTS: str = "app.greencandledispatch.com,beta.codriverfreight.com,localhost,127.0.0.1"
+    ALLOWED_BASE_HOSTS: str = "codriverfreight.com,www.codriverfreight.com,beta.codriverfreight.com,localhost,127.0.0.1"
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 

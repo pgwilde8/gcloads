@@ -1,5 +1,6 @@
 import re
 import json
+import secrets
 from datetime import date, datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, Form, Request
@@ -93,11 +94,18 @@ def _is_profile_complete(driver: Driver | None) -> bool:
     return bool((driver.display_name or "").strip() and (driver.mc_number or "").strip())
 
 
-def _onboarding_redirect_for_driver(driver: Driver) -> str:
+def _onboarding_redirect_for_driver(driver: Driver, db=None) -> str:
     status = (driver.onboarding_status or "needs_profile").strip().lower()
     if status == "pending_century":
         return "/onboarding/pending-century"
-    if status == "active" and (driver.factor_type or "").strip().lower() == "existing":
+    if status == "active":
+        # Check whether all 4 carrier docs have been uploaded
+        if db is not None:
+            readiness = packet_readiness_for_driver(db, driver.id)
+            uploaded = set(readiness.get("uploaded") or [])
+            required = {"mc_auth", "coi", "w9", "voided_check"}
+            if not required.issubset(uploaded):
+                return "/onboarding/step3"
         return "/drivers/dashboard"
     if _is_profile_complete(driver):
         return "/onboarding/factoring"
@@ -338,7 +346,7 @@ async def verify_magic_link(
         db.commit()
         request.session["user_id"] = selected_driver.id
         request.session.pop("pending_email", None)
-        return RedirectResponse(url=_onboarding_redirect_for_driver(selected_driver), status_code=302)
+        return RedirectResponse(url=_onboarding_redirect_for_driver(selected_driver, db), status_code=302)
 
     db.commit()
     request.session.pop("user_id", None)
@@ -348,27 +356,34 @@ async def verify_magic_link(
 
 @router.get("/register-trucker")
 async def register_trucker_page(request: Request, db: Session = Depends(get_db)):
-    session_driver_id, pending_email = _require_magic_session(request)
-    if not session_driver_id and not pending_email:
-        return RedirectResponse(url="/start", status_code=302)
+    # Open registration: no magic link required.
+    # If the driver is already logged in, redirect them to wherever they belong.
+    session_driver_id = request.session.get("user_id")
+    pending_email = request.session.get("pending_email")
 
     selected_driver = None
     if session_driver_id:
         selected_driver = db.query(Driver).filter(Driver.id == session_driver_id).first()
-        if not selected_driver:
+        if selected_driver:
+            next_url = _onboarding_redirect_for_driver(selected_driver, db)
+            if next_url != "/register-trucker":
+                return RedirectResponse(url=next_url, status_code=302)
+        else:
             request.session.pop("user_id", None)
-            return RedirectResponse(url="/start", status_code=302)
-        next_url = _onboarding_redirect_for_driver(selected_driver)
-        if next_url != "/register-trucker":
-            return RedirectResponse(url=next_url, status_code=302)
 
     prefill_email = pending_email or (selected_driver.email if selected_driver else "")
+    # Only lock the email field when it came from a verified magic link session
+    # (pending_email is set by the magic link verification flow).
+    # A logged-in driver editing their profile, or a fresh open-registration
+    # visitor, should always be able to type/change their email.
+    email_readonly = bool(pending_email)
     return templates.TemplateResponse(
         "public/register-trucker.html",
         {
             "request": request,
             "prefill_email": prefill_email,
             "driver": selected_driver,
+            "email_readonly": email_readonly,
         },
     )
 
@@ -414,11 +429,28 @@ async def register_trucker(
     dot_number: str = Form(""),
     db: Session = Depends(get_db),
 ):
-    session_driver_id, pending_email = _require_magic_session(request)
-    if not session_driver_id and not pending_email:
-        return RedirectResponse(url="/start", status_code=302)
+    # Open registration: no magic link required.
+    session_driver_id = request.session.get("user_id")
+    pending_email = request.session.get("pending_email")
 
     normalized_email = (pending_email or email).strip().lower()
+    email_readonly = bool(pending_email)
+
+    def _form_error(msg: str):
+        return templates.TemplateResponse(
+            "public/register-trucker.html",
+            {
+                "request": request,
+                "error": msg,
+                "prefill_email": normalized_email,
+                "email_readonly": email_readonly,
+            },
+            status_code=400,
+        )
+
+    if not normalized_email:
+        return _form_error("Email address is required.")
+
     human_name = display_name.strip() or "Driver"
 
     selected_driver = None
@@ -426,7 +458,6 @@ async def register_trucker(
         selected_driver = db.query(Driver).filter(Driver.id == session_driver_id).first()
         if not selected_driver:
             request.session.pop("user_id", None)
-            return RedirectResponse(url="/start", status_code=302)
 
     if not selected_driver:
         existing_driver = db.query(Driver).filter(Driver.email == normalized_email).first()
@@ -439,14 +470,7 @@ async def register_trucker(
     base_handle = slugify_handle(seed_handle, normalized_email)
     validation_error = validate_handle(base_handle)
     if validation_error:
-        return templates.TemplateResponse(
-            "public/register-trucker.html",
-            {
-                "request": request,
-                "error": validation_error,
-            },
-            status_code=400,
-        )
+        return _form_error(validation_error)
 
     clean_handle = build_unique_handle(db, base_handle, exclude_driver_id=selected_driver.id if selected_driver else None)
 
@@ -455,15 +479,7 @@ async def register_trucker(
     normalized_dot = dot_number.strip()
     authority_value = normalized_mc if normalized_authority == "MC" else normalized_dot
     if not authority_value:
-        return templates.TemplateResponse(
-            "public/register-trucker.html",
-            {
-                "request": request,
-                "error": "Provide a valid MC or DOT number.",
-                "prefill_email": normalized_email,
-            },
-            status_code=400,
-        )
+        return _form_error("Provide a valid MC or DOT number.")
 
     if selected_driver:
         selected_driver.display_name = human_name
@@ -485,6 +501,7 @@ async def register_trucker(
             core_settings.BETA_HOSTS,
             core_settings.TRUSTED_PROXY_IPS,
         )
+        now_utc = datetime.now(timezone.utc)
         driver_kw: dict = {
             "display_name": human_name,
             "dispatch_handle": clean_handle,
@@ -493,7 +510,12 @@ async def register_trucker(
             "dot_number": normalized_dot or (authority_value if normalized_authority == "DOT" else None),
             "onboarding_status": "needs_profile",
             "factor_type": None,
-            "email_verified_at": datetime.now(timezone.utc),
+            "email_verified_at": now_utc,
+            "scout_api_key": secrets.token_hex(32),
+            # Trial state: 7-day window, no card required to browse/score
+            "billing_status": "trial",
+            "trial_started_at": now_utc,
+            "trial_ends_at": now_utc + timedelta(days=7),
         }
         if beta_host:
             driver_kw["billing_mode"] = "beta"
@@ -501,6 +523,11 @@ async def register_trucker(
             # 60 calendar days. When setting programmatically elsewhere (e.g. admin extend),
             # use max(existing, new_date) to avoid shortening an already-longer exemption.
             driver_kw["billing_exempt_until"] = date.today() + timedelta(days=60)
+            # Beta drivers are permanently active — no trial window, no Stripe required.
+            driver_kw["billing_status"] = "active"
+            driver_kw["activated_at"] = now_utc
+            driver_kw["trial_started_at"] = None
+            driver_kw["trial_ends_at"] = None
         new_driver = Driver(**driver_kw)
         db.add(new_driver)
         db.commit()
@@ -534,7 +561,7 @@ async def onboarding_factoring_page(
     if (selected_driver.onboarding_status or "").lower() == "pending_century":
         return RedirectResponse(url="/onboarding/pending-century", status_code=302)
     if (selected_driver.factor_type or "").lower() == "existing" and (selected_driver.onboarding_status or "").lower() == "active":
-        return RedirectResponse(url="/drivers/dashboard", status_code=302)
+        return RedirectResponse(url=_onboarding_redirect_for_driver(selected_driver, db), status_code=302)
 
     return templates.TemplateResponse(
         "drivers/onboarding_factoring.html",
@@ -579,7 +606,8 @@ async def onboarding_factoring_submit(
         selected_driver.onboarding_status = "active"
         db.add(selected_driver)
         db.commit()
-        return RedirectResponse(url="/drivers/dashboard", status_code=302)
+        db.refresh(selected_driver)
+        return RedirectResponse(url="/onboarding/step3", status_code=302)
 
     if choice == "no":
         selected_driver.factor_type = "needs_factor"
